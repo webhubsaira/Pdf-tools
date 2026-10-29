@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script type="importmap">
+      {
+        "imports": {
+          "pdf-lib": "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm",
+          "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.2/+esm"
+        }
+      }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>About DocuFlow - Online PDF Tools</title>
+    <meta name="description" content="Learn about DocuFlow, our privacy-first philosophy, and how we empower individuals and businesses with secure browser-side document tools." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <link rel="stylesheet" href="/css/tools.css" />
+  </head>
+  <body>
+    <!-- Site Header -->
+    <header class="site-header" role="banner">
+      <div class="container header-container">
+        <a href="/" class="header-logo-link" aria-label="iLovePDFs Home">
+          <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" class="header-logo-img" height="42" />
+        </a>
+
+        <nav class="nav-desktop" aria-label="Main Navigation">
+          <a href="/tools.html" class="nav-link">PDF Tools</a>
+          <a href="/tools.html?tool=merge-pdf" class="nav-link nav-tool-link">Merge PDF</a>
+          <a href="/tools.html?tool=compress-pdf" class="nav-link nav-tool-link">Compress PDF</a>
+          <a href="/tools.html?tool=jpg-to-pdf" class="nav-link nav-tool-link">JPG to PDF</a>
+          <a href="/security.html" class="nav-link">Security</a>
+          <a href="/about.html" class="nav-link active">About</a>
+        </nav>
+
+        <div class="header-actions">
+          <a href="/tools.html" class="btn btn-primary btn-sm btn-header-cta">
+            Explore Tools
+          </a>
+          <button type="button" class="menu-toggle" aria-label="Toggle navigation menu">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile Navigation Drawer -->
+    <div class="mobile-nav-overlay" id="mobile-nav-drawer" aria-hidden="true" role="dialog">
+      <div class="mobile-nav-drawer">
+        <div class="mobile-nav-header">
+          <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" height="32" />
+          <button type="button" class="mobile-nav-close" aria-label="Close menu">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="mobile-nav-links">
+          <a href="/index.html" class="mobile-nav-link">Home</a>
+          <a href="/tools.html" class="mobile-nav-link">PDF Tools</a>
+          <a href="/security.html" class="mobile-nav-link">Security</a>
+          <a href="/about.html" class="mobile-nav-link active">About Us</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main style="padding: 48px 0 80px;">
+      <div class="container" style="max-width: 880px;">
+        <!-- Breadcrumb -->
+        <nav class="breadcrumb" aria-label="Breadcrumb">
+          <a href="/">Home</a>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-current">About Us</span>
+        </nav>
+
+        <article>
+          <header style="margin-bottom: 36px;">
+            <div class="hero-badge" style="margin-bottom: 14px;">The iLovePDFs Story</div>
+            <h1 style="font-size: clamp(2rem, 3.5vw, 2.75rem); font-weight: 800; color: var(--color-text); line-height: 1.2; margin-bottom: 16px;">
+              Reimagining PDF Tools for the Modern, Privacy-Conscious Web
+            </h1>
+            <p style="font-size: 1.125rem; color: var(--color-text-secondary); line-height: 1.65;">
+              iLovePDFs was built with a singular premise: manipulating, transforming, and organizing your confidential documents should be fast, elegant, and private by default.
+            </p>
+          </header>
+
+          <section style="margin-bottom: 40px; line-height: 1.7; color: var(--color-text);">
+            <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 14px; color: var(--color-text);">Why We Built iLovePDFs</h2>
+            <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+              For years, online document utilities have operated under a flawed model: users were forced to upload private tax forms, business contracts, and sensitive identification records to third-party servers just to combine two pages or rotate an orientation.
+            </p>
+            <p style="color: var(--color-text-secondary); margin-bottom: 16px;">
+              With recent advancements in client-side WebAssembly, modern JavaScript binary processing, and HTML5 canvas APIs, your browser is more than capable of executing heavy document operations locally. iLovePDFs leverages these capabilities to process your documents directly in your browser's execution memory.
+            </p>
+          </section>
+
+          <section style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 48px;">
+            <div style="padding: 24px; background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+              <div style="color: var(--color-primary); font-size: 1.5rem; margin-bottom: 10px;">🔒</div>
+              <h3 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 8px;">Zero Server Storage</h3>
+              <p style="font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.55;">
+                Client-ready tools run in local device memory. Your document bytes never touch our infrastructure or third-party cloud disks.
+              </p>
+            </div>
+
+            <div style="padding: 24px; background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+              <div style="color: var(--color-primary); font-size: 1.5rem; margin-bottom: 10px;">⚡</div>
+              <h3 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 8px;">Zero Artificial Friction</h3>
+              <p style="font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.55;">
+                No forced registrations, no artificial wait counters, and no hidden subscriptions for standard daily document tasks.
+              </p>
+            </div>
+
+            <div style="padding: 24px; background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md);">
+              <div style="color: var(--color-primary); font-size: 1.5rem; margin-bottom: 10px;">🎯</div>
+              <h3 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 8px;">Real Processing Only</h3>
+              <p style="font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.55;">
+                We never fake processing. Tools perform real byte-level transformations or clearly state server pipeline requirements.
+              </p>
+            </div>
+          </section>
+
+          <section style="background-color: var(--color-primary-soft); border: 1px solid #FED7D7; border-radius: var(--radius-lg); padding: 36px; text-align: center;">
+            <h2 style="font-size: 1.35rem; font-weight: 700; color: var(--color-text); margin-bottom: 12px;">Ready to work with your documents?</h2>
+            <p style="color: var(--color-text-secondary); margin-bottom: 24px; max-width: 520px; margin-left: auto; margin-right: auto;">
+              Experience the fast, responsive, and private document workspace built for everyone.
+            </p>
+            <a href="/tools.html" class="btn btn-primary btn-lg">Explore All PDF Tools</a>
+          </section>
+        </article>
+      </div>
+    </main>
+
+    <!-- Responsive Footer -->
+    <footer class="site-footer" role="contentinfo">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a href="/"><img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" class="footer-logo-img" height="36" /></a>
+            <p class="footer-brand-desc">Fast, privacy-focused online PDF tools engineered for productivity and ease of use.</p>
+          </div>
+          <div>
+            <div class="footer-col-title">Navigation</div>
+            <ul class="footer-links">
+              <li><a href="/index.html" class="footer-link">Home</a></li>
+              <li><a href="/tools.html" class="footer-link">All Tools</a></li>
+              <li><a href="/about.html" class="footer-link">About Us</a></li>
+            </ul>
+          </div>
+          <div>
+            <div class="footer-col-title">Security & Legal</div>
+            <ul class="footer-links">
+              <li><a href="/security.html" class="footer-link">Security Whitepaper</a></li>
+              <li><a href="/privacy.html" class="footer-link">Privacy Policy</a></li>
+              <li><a href="/terms.html" class="footer-link">Terms of Service</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <div>&copy; <span class="current-year">2026</span> iLovePDFs. All rights reserved.</div>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/js/main.js"></script>
+  </body>
+</html>

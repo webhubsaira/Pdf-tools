@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <script type="importmap">
+      {
+        "imports": {
+          "pdf-lib": "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm",
+          "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.2/+esm"
+        }
+      }
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>All PDF Tools - iLovePDFs Directory</title>
+    <meta name="description" content="Explore iLovePDFs' full suite of online PDF tools: merge, split, compress, watermark, rotate, protect, and convert PDF documents with browser-side privacy." />
+    <meta property="og:title" content="All PDF Tools - iLovePDFs Directory" />
+    <meta property="og:description" content="Explore iLovePDFs' full suite of online PDF tools: merge, split, compress, watermark, rotate, protect, and convert PDF documents." />
+    <meta property="og:type" content="website" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    
+    <link rel="stylesheet" href="/css/style.css" />
+    <link rel="stylesheet" href="/css/responsive.css" />
+    <link rel="stylesheet" href="/css/tools.css" />
+  </head>
+  <body>
+    <!-- Site Header -->
+    <header class="site-header" role="banner">
+      <div class="container header-container">
+        <a href="/" class="header-logo-link" aria-label="iLovePDFs Home">
+          <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" class="header-logo-img" height="42" />
+        </a>
+
+        <nav class="nav-desktop" aria-label="Main Navigation">
+          <a href="/tools.html" class="nav-link active">PDF Tools</a>
+          <a href="/tools.html?tool=merge-pdf" class="nav-link nav-tool-link">Merge PDF</a>
+          <a href="/tools.html?tool=compress-pdf" class="nav-link nav-tool-link">Compress PDF</a>
+          <a href="/tools.html?tool=jpg-to-pdf" class="nav-link nav-tool-link">JPG to PDF</a>
+          <a href="/security.html" class="nav-link">Security</a>
+          <a href="/about.html" class="nav-link">About</a>
+        </nav>
+
+        <div class="header-actions">
+          <button type="button" class="btn btn-primary btn-sm btn-header-cta" onclick="window.DocuFlowApp.openToolStudio('merge-pdf')">
+            Quick Merge
+          </button>
+          <button type="button" class="menu-toggle" aria-label="Toggle navigation menu" aria-expanded="false">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile Navigation Drawer -->
+    <div class="mobile-nav-overlay" id="mobile-nav-drawer" aria-hidden="true" role="dialog" aria-modal="true">
+      <div class="mobile-nav-drawer">
+        <div class="mobile-nav-header">
+          <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" height="34" />
+          <button type="button" class="mobile-nav-close" aria-label="Close menu">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="mobile-nav-links">
+          <a href="/index.html" class="mobile-nav-link">Home</a>
+          <a href="/tools.html" class="mobile-nav-link active">All PDF Tools</a>
+          <a href="/security.html" class="mobile-nav-link">Security</a>
+          <a href="/about.html" class="mobile-nav-link">About Us</a>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <main>
+      <section class="tools-section" style="padding-top: 40px;">
+        <div class="container">
+          <!-- Breadcrumb -->
+          <nav class="breadcrumb" aria-label="Breadcrumb">
+            <a href="/">Home</a>
+            <span class="breadcrumb-sep">/</span>
+            <span class="breadcrumb-current">PDF Tools Directory</span>
+          </nav>
+
+          <div class="section-header" style="text-align: left; margin-bottom: 32px;">
+            <h1 class="section-title">All PDF Tools</h1>
+            <p class="section-desc" style="margin: 0;">
+              Browse our complete library of PDF utilities. Every client-ready tool operates with local privacy inside your web browser.
+            </p>
+          </div>
+
+          <!-- Featured Quick Suites Bar -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 36px;">
+            <div class="featured-mini-card" style="flex-direction: row; gap: 14px; text-align: left;" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
+              <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.28_PM_86a1cbe2.jpeg" alt="Word to PDF" style="margin-bottom: 0; width: 56px; height: 56px;" />
+              <div>
+                <h4 style="margin-bottom: 2px;">Word to PDF</h4>
+                <p>Convert DOC documents</p>
+              </div>
+            </div>
+
+            <div class="featured-mini-card" style="flex-direction: row; gap: 14px; text-align: left;" onclick="window.DocuFlowApp.openToolStudio('pdf-to-word')">
+              <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.30_PM__1__54b16a33.jpeg" alt="PDF to Word Free" style="margin-bottom: 0; width: 56px; height: 56px;" />
+              <div>
+                <h4 style="margin-bottom: 2px;">PDF to Word Free</h4>
+                <p>Reconstruct editable text</p>
+              </div>
+            </div>
+
+            <div class="featured-mini-card" style="flex-direction: row; gap: 14px; text-align: left;" onclick="window.DocuFlowApp.openToolStudio('pdf-to-text')">
+              <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.33_PM_b2c37f53.jpeg" alt="OCR PDF" style="margin-bottom: 0; width: 56px; height: 56px;" />
+              <div>
+                <h4 style="margin-bottom: 2px;">OCR Text Extractor</h4>
+                <p>Readable content scan</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Controls: Search & Category Filter Pills -->
+          <div class="tools-control-bar">
+            <div class="search-input-wrapper" style="margin: 0; max-width: 100%;">
+              <svg class="search-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" id="tools-search" class="tools-search-input" placeholder="Search by tool name, purpose, or format..." aria-label="Search tools" />
+              <button type="button" id="search-clear" class="search-clear-btn" aria-label="Clear search">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              </button>
+            </div>
+
+            <div class="category-filters" style="justify-content: flex-start;" role="tablist">
+              <button type="button" class="filter-btn active" data-category="all" role="tab" aria-selected="true">All Tools</button>
+              <button type="button" class="filter-btn" data-category="organize" role="tab" aria-selected="false">Organize PDF</button>
+              <button type="button" class="filter-btn" data-category="optimize" role="tab" aria-selected="false">Optimize PDF</button>
+              <button type="button" class="filter-btn" data-category="convert-to" role="tab" aria-selected="false">Convert to PDF</button>
+              <button type="button" class="filter-btn" data-category="convert-from" role="tab" aria-selected="false">Convert from PDF</button>
+              <button type="button" class="filter-btn" data-category="edit" role="tab" aria-selected="false">Edit PDF</button>
+              <button type="button" class="filter-btn" data-category="utilities" role="tab" aria-selected="false">Additional Utilities</button>
+            </div>
+          </div>
+
+          <!-- Empty search results -->
+          <div id="empty-results" class="empty-results">
+            <svg class="empty-icon" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            <h3 class="empty-title">No matching tools found</h3>
+            <p class="empty-desc">Please try different keywords or reset the filter.</p>
+            <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('search-clear').click()">Reset Search</button>
+          </div>
+
+          <!-- Tools Grid -->
+          <div class="tools-grid" id="tools-grid"></div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Interactive Tool Studio Modal -->
+    <div class="tool-modal-overlay" id="tool-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tool-modal-title" aria-hidden="true">
+      <div class="tool-modal-dialog">
+        <div class="tool-modal-header">
+          <div class="tool-modal-title-area">
+            <div class="tool-modal-icon" id="tool-modal-icon"></div>
+            <div>
+              <h3 class="tool-modal-title" id="tool-modal-title">PDF Tool</h3>
+              <span class="tool-modal-badge" id="tool-modal-badge">Organize</span>
+            </div>
+          </div>
+          <button type="button" class="modal-close-btn" id="modal-close-btn" aria-label="Close dialog">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
+        <div class="tool-modal-body" id="tool-modal-body"></div>
+      </div>
+    </div>
+
+    <!-- Responsive Footer -->
+    <footer class="site-footer" role="contentinfo">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a href="/" aria-label="iLovePDFs Home">
+              <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.26_PM_72ad562d.jpeg" alt="iLovePDFs" class="footer-logo-img" height="38" />
+            </a>
+            <p class="footer-brand-desc">
+              Fast, privacy-focused online PDF tools engineered for productivity and ease of use.
+            </p>
+          </div>
+          <div>
+            <div class="footer-col-title">Popular Tools</div>
+            <ul class="footer-links">
+              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('merge-pdf'); return false;">Merge PDF</a></li>
+              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('split-pdf'); return false;">Split PDF</a></li>
+              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('compress-pdf'); return false;">Compress PDF</a></li>
+              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('jpg-to-pdf'); return false;">JPG to PDF</a></li>
+            </ul>
+          </div>
+          <div>
+            <div class="footer-col-title">Navigation</div>
+            <ul class="footer-links">
+              <li><a href="/index.html" class="footer-link">Home</a></li>
+              <li><a href="/tools.html" class="footer-link">All Tools</a></li>
+              <li><a href="/about.html" class="footer-link">About Us</a></li>
+              <li><a href="/security.html" class="footer-link">Security</a></li>
+            </ul>
+          </div>
+          <div>
+            <div class="footer-col-title">Legal & Support</div>
+            <ul class="footer-links">
+              <li><a href="/privacy.html" class="footer-link">Privacy Policy</a></li>
+              <li><a href="/terms.html" class="footer-link">Terms of Service</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <div>&copy; <span class="current-year">2026</span> iLovePDFs. All rights reserved.</div>
+          <div class="footer-legal-links">
+            <a href="/privacy.html">Privacy</a>
+            <a href="/terms.html">Terms</a>
+            <a href="/security.html">Security</a>
+          </div>
+        </div>
+      </div>
+    </footer>
+
+    <script type="module" src="/js/main.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const cat = urlParams.get('cat');
+        if (cat) {
+          const btn = document.querySelector(`.filter-btn[data-category="${cat}"]`);
+          if (btn) btn.click();
+        }
+      });
+    </script>
+  </body>
+</html>

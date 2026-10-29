@@ -1,0 +1,217 @@
+/**
+ * DocuFlow - Responsive Stylesheet
+ * Optimized for mobile (320px-430px), tablet (768px), laptop (1024px), and desktop (1280px+)
+ */
+
+.security-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px;
+}
+
+/* Laptops & Tablets (1024px and below) */
+@media (max-width: 1024px) {
+  .tools-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .steps-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 36px;
+  }
+
+  .privacy-banner {
+    gap: 32px;
+    padding: 36px;
+  }
+
+  .security-comparison-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Tablets (768px and below) */
+@media (max-width: 768px) {
+  :root {
+    --header-height: 64px;
+  }
+
+  .container {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .nav-desktop {
+    display: none;
+  }
+
+  .menu-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .header-actions .btn-header-cta {
+    display: none;
+  }
+
+  .hero-section {
+    padding: 48px 0 40px;
+  }
+
+  .hero-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .hero-actions .btn {
+    width: 100%;
+    max-width: 320px;
+  }
+
+  .hero-trust-list {
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .tools-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+
+  .tool-card {
+    padding: 18px;
+  }
+
+  .tool-title {
+    font-size: 1.05rem;
+  }
+
+  .steps-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .privacy-banner {
+    grid-template-columns: 1fr;
+    padding: 28px 20px;
+  }
+
+  .security-comparison-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .privacy-visual {
+    padding: 24px;
+  }
+
+  .cta-section {
+    padding: 56px 0;
+  }
+
+  .cta-buttons {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .cta-buttons .btn {
+    width: 100%;
+    max-width: 300px;
+  }
+
+  .footer-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .footer-bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .category-filters {
+    justify-content: flex-start;
+    overflow-x: auto;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap;
+    width: 100%;
+  }
+
+  .filter-btn {
+    flex-shrink: 0;
+  }
+}
+
+@media (min-width: 769px) and (max-width: 1100px) {
+  .nav-tool-link {
+    display: none;
+  }
+}
+
+/* Small Mobile Screens (430px and below) */
+@media (max-width: 480px) {
+  .tools-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .hero-heading {
+    font-size: 1.85rem;
+  }
+
+  .hero-subtitle {
+    font-size: 1rem;
+  }
+
+  .section-title {
+    font-size: 1.6rem;
+  }
+
+  .tool-icon-wrap {
+    width: 42px;
+    height: 42px;
+    margin-bottom: 12px;
+  }
+
+  .step-card {
+    padding: 24px 20px;
+  }
+}
+
+/* Ultra-compact (320px) */
+@media (max-width: 340px) {
+  .container {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .hero-heading {
+    font-size: 1.65rem;
+  }
+
+  .btn {
+    padding: 8px 14px;
+    font-size: 0.875rem;
+  }
+}
+
+/* Reduced Motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
