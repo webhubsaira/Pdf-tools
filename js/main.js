@@ -17,6 +17,7 @@ import {
   processCompressPDF,
   processFlattenPDF,
   processPDFToText,
+  processPDFToWord,
   processPDFToZIP,
   processPDFMetadata,
   processCreateBlankPDF
@@ -846,6 +847,10 @@ async function executeToolOperation(tool, showAlert) {
 
       case 'pdf-to-text':
         result = await processPDFToText(state.selectedFiles[0], updateProgress);
+        break;
+
+      case 'pdf-to-word':
+        result = await processPDFToWord(state.selectedFiles[0], updateProgress);
         break;
 
       case 'pdf-to-zip':

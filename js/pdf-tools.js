@@ -467,6 +467,158 @@ export async function processPDFToText(file, onProgress) {
 }
 
 /**
+ * Extract selectable text from a PDF and package it as an editable Word document.
+ */
+export async function processPDFToWord(file, onProgress) {
+  if (!file) {
+    throw new Error('Please choose a PDF file to convert.');
+  }
+
+  const [pdfjsLib, workerModule] = await Promise.all([
+    import('pdfjs-dist'),
+    import('pdfjs-dist/build/pdf.worker.min.mjs?url')
+  ]);
+  pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+
+  if (onProgress) onProgress(10, 'Reading PDF file...');
+  const buffer = await readFileAsArrayBuffer(file);
+  const loadingTask = pdfjsLib.getDocument({
+    data: new Uint8Array(buffer),
+    isEvalSupported: false
+  });
+
+  let pdf;
+  try {
+    pdf = await loadingTask.promise;
+  } catch (error) {
+    if (error?.name === 'PasswordException') {
+      throw new Error('This PDF is password-protected. Remove its password before converting it.');
+    }
+    throw error;
+  }
+
+  const pageParagraphs = [];
+  let extractedCharacters = 0;
+
+  for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
+    if (onProgress) {
+      const progress = 20 + Math.round((pageNumber / pdf.numPages) * 55);
+      onProgress(progress, `Extracting text from page ${pageNumber} of ${pdf.numPages}...`);
+    }
+
+    const page = await pdf.getPage(pageNumber);
+    const textContent = await page.getTextContent();
+    const textItems = textContent.items
+      .filter((item) => typeof item.str === 'string' && item.str.trim())
+      .map((item) => ({
+        text: item.str,
+        x: item.transform[4],
+        y: item.transform[5],
+        width: item.width,
+        fontSize: Math.hypot(item.transform[0], item.transform[1]) || item.height || 12
+      }))
+      .sort((a, b) => b.y - a.y || a.x - b.x);
+
+    const lines = [];
+    for (const item of textItems) {
+      const previousLine = lines[lines.length - 1];
+      const tolerance = Math.max(1.5, Math.min(4, item.fontSize * 0.25));
+      if (!previousLine || Math.abs(previousLine.y - item.y) > tolerance) {
+        lines.push({ y: item.y, items: [item] });
+      } else {
+        previousLine.items.push(item);
+      }
+    }
+
+    const paragraphs = lines.map((line) => {
+      line.items.sort((a, b) => a.x - b.x);
+      let text = '';
+      let previousItem;
+      for (const item of line.items) {
+        if (previousItem) {
+          const gap = item.x - (previousItem.x + previousItem.width);
+          if (gap > Math.max(1, item.fontSize * 0.18) && !/\s$/.test(text) && !/^\s/.test(item.text)) {
+            text += ' ';
+          }
+        }
+        text += item.text;
+        previousItem = item;
+      }
+      return text.trim();
+    }).filter(Boolean);
+
+    extractedCharacters += paragraphs.join('').length;
+    pageParagraphs.push(paragraphs);
+  }
+
+  if (extractedCharacters === 0) {
+    throw new Error('No selectable text was found. This may be a scanned PDF; OCR is not available in this browser-only converter.');
+  }
+
+  if (onProgress) onProgress(82, 'Building editable Word document...');
+  const documentParagraphs = [];
+  for (let index = 0; index < pageParagraphs.length; index++) {
+    for (const paragraph of pageParagraphs[index]) {
+      const safeText = paragraph
+        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+      documentParagraphs.push(`<w:p><w:r><w:t xml:space="preserve">${safeText}</w:t></w:r></w:p>`);
+    }
+    if (index < pageParagraphs.length - 1) {
+      documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+    }
+  }
+
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+  <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+</Types>`);
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>`);
+  zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
+    <w:name w:val="Normal"/>
+    <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr>
+    <w:pPr><w:spacing w:after="120"/></w:pPr>
+  </w:style>
+</w:styles>`);
+  zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    ${documentParagraphs.join('')}
+    <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>
+  </w:body>
+</w:document>`);
+
+  if (onProgress) onProgress(95, 'Preparing Word document for download...');
+  const data = await zip.generateAsync({
+    type: 'blob',
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  });
+  const originalBase = file.name.replace(/\.[^/.]+$/, '');
+
+  return {
+    data,
+    filename: `${originalBase}.docx`,
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    pageCount: pdf.numPages
+  };
+}
+
+/**
  * Bundle multiple PDF files into a single ZIP archive
  */
 export async function processPDFToZIP(files, onProgress) {

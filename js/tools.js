@@ -289,13 +289,12 @@ export const TOOLS = [
     name: 'PDF to Word',
     category: 'convert-from',
     categoryName: 'Convert from PDF',
-    desc: 'Convert PDF files into editable Microsoft Word (.docx) documents with layout recognition.',
+    desc: 'Convert selectable PDF text into an editable Word document. Scanned PDFs require OCR and are not supported.',
     badge: null,
     accept: '.pdf',
     multiple: false,
-    workflow: 'pdf-to-office',
-    isClientReady: false,
-    serverRequiredNote: 'Editable Word layout reconstruction requires the document OCR/layout analysis service.',
+    workflow: 'pdf-to-word',
+    isClientReady: true,
     icon: `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 15h6"/><path d="M9 11h6"/><path d="M9 7h1"/></svg>`
   },
   {

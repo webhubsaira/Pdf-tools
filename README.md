@@ -24,6 +24,7 @@ iLovePDFs is a complete, modern, responsive PDF tools web platform engineered wi
   - **JPG / PNG to PDF:** Convert multiple images into multi-page PDFs with portrait/landscape and margins.
   - **Compress PDF:** Streamline PDF streams, strip unreferenced objects, and calculate byte savings.
   - **PDF to Text:** Extract text streams into `.txt` documents.
+  - **PDF to Word:** Convert selectable PDF text into an editable `.docx` in the browser. Scanned PDFs require OCR and are not supported by this client-side converter.
   - **PDF to ZIP:** Archive multiple documents into a single `.zip` file.
   - **Metadata:** Read and update PDF Title, Author, and Subject.
 - **Transparent Server Requirements:** Office conversions (Word, Excel, PPT) and OCR clearly state backend API requirements instead of creating fake downloads.
