@@ -18,6 +18,18 @@ import {
   processFlattenPDF,
   processPDFToText,
   processPDFToWord,
+  processOrganizePDF,
+  processOfficeToPDF,
+  processHtmlToPDF,
+  processPDFToImages,
+  processPdfToOffice,
+  processOCRPDF,
+  processSignPDF,
+  processCropPDF,
+  processComparePDF,
+  processRepairPDF,
+  processProtectPDF,
+  processUnlockPDF,
   processPDFToZIP,
   processPDFMetadata,
   processCreateBlankPDF
@@ -278,7 +290,7 @@ function renderToolBody(tool) {
     <div id="modal-alert" class="alert-banner"></div>
 
     <!-- Upload Zone -->
-    <div class="upload-zone" id="modal-upload-zone" tabindex="0" role="region" aria-label="Upload files area">
+    ${tool.workflow === 'create-pdf' ? '<p class="form-hint">Creates a blank A4 PDF directly in your browser.</p>' : `<div class="upload-zone" id="modal-upload-zone" tabindex="0" role="region" aria-label="Upload files area">
       <input type="file" class="upload-file-input" id="modal-file-input" ${tool.multiple ? 'multiple' : ''} accept="${tool.accept}">
       <div class="upload-icon-circle" aria-hidden="true">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -286,13 +298,13 @@ function renderToolBody(tool) {
       <div class="upload-main-text">Click or drag & drop ${tool.multiple ? 'files' : 'your file'} here</div>
       <div class="upload-sub-text">Supported format: ${tool.accept} (Max 100 MB per file)</div>
       <button type="button" class="btn btn-secondary btn-sm" style="pointer-events: none;">Select from Computer</button>
-    </div>
+    </div>`}
 
     <!-- Selected Files Queue -->
     <div class="file-queue" id="modal-file-queue" style="display: none;"></div>
 
     <!-- Tool Specific Settings Panel -->
-    <div class="tool-settings-card" id="modal-tool-settings" style="display: none;">
+    <div class="tool-settings-card" id="modal-tool-settings" style="display: ${tool.workflow === 'create-pdf' ? 'block' : 'none'};">
       ${getToolSpecificSettingsHTML(tool)}
     </div>
 
@@ -311,7 +323,7 @@ function renderToolBody(tool) {
       <div class="success-icon-wrap">
         <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
       </div>
-      <div class="success-title">Your PDF is Ready!</div>
+      <div class="success-title">Your document is ready!</div>
       <div class="success-desc">Completed securely right inside your browser. No files were uploaded to any server.</div>
       <div id="modal-result-stats"></div>
       <div class="success-actions">
@@ -324,7 +336,7 @@ function renderToolBody(tool) {
     </div>
 
     <!-- Action Bar -->
-    <div id="modal-action-bar" style="margin-top: 24px; display: none; justify-content: flex-end; gap: 12px;">
+    <div id="modal-action-bar" style="margin-top: 24px; display: ${tool.workflow === 'create-pdf' ? 'flex' : 'none'}; justify-content: flex-end; gap: 12px;">
       <button class="btn btn-secondary" id="modal-clear-btn">Clear</button>
       <button class="btn btn-primary" id="modal-execute-btn">
         ${getToolActionBtnLabel(tool)}
@@ -352,6 +364,19 @@ function getToolActionBtnLabel(tool) {
     case 'compress': return 'Compress PDF Now';
     case 'flatten': return 'Flatten Document';
     case 'pdf-to-text': return 'Extract Text';
+    case 'pdf-to-word': return 'Convert to Word';
+    case 'pdf-to-images': return 'Export Page Images';
+    case 'pdf-to-office': return 'Convert PDF';
+    case 'office-to-pdf': return 'Convert to PDF';
+    case 'html-to-pdf': return 'Convert to PDF';
+    case 'organize': return 'Organize Pages';
+    case 'unlock': return 'Remove Password';
+    case 'protect': return 'Protect PDF';
+    case 'repair': return 'Repair PDF';
+    case 'sign': return 'Add Signature';
+    case 'crop': return 'Crop PDF';
+    case 'compare': return 'Compare PDFs';
+    case 'ocr': return 'Recognize Text';
     case 'pdf-to-zip': return 'Create ZIP Archive';
     case 'metadata': return 'Update Document Metadata';
     case 'create-pdf': return 'Generate Blank PDF';
@@ -493,14 +518,15 @@ function getToolSpecificSettingsHTML(tool) {
         </div>
         <div class="preset-grid">
           <div class="preset-card active" data-compress="recommended">
-            <span class="preset-title">Recommended</span>
-            <span class="preset-desc">Balanced quality & size</span>
+            <span class="preset-title">Standard</span>
+            <span class="preset-desc">150 DPI, balanced JPEG</span>
           </div>
           <div class="preset-card" data-compress="extreme">
-            <span class="preset-title">High Efficiency</span>
-            <span class="preset-desc">Max stream reduction</span>
+            <span class="preset-title">Smaller file</span>
+            <span class="preset-desc">100 DPI, lower JPEG quality</span>
           </div>
         </div>
+        <div class="form-hint">Pages may be rasterized and text may no longer be selectable. The smaller of the rasterized and lossless outputs is used.</div>
       `;
 
     case 'metadata':
@@ -524,6 +550,61 @@ function getToolSpecificSettingsHTML(tool) {
           <input type="text" class="form-control" id="setting-meta-subject" placeholder="Comma separated keywords">
         </div>
       `;
+
+    case 'organize':
+      return `<div class="form-group">
+        <label class="form-label" for="setting-page-order">New page order</label>
+        <input type="text" class="form-control" id="setting-page-order" placeholder="Example: 3, 1, 2">
+        <div class="form-hint">Enter pages in the order you want them, separated by commas.</div>
+      </div>`;
+
+    case 'sign':
+      return `<div class="form-group">
+        <label class="form-label" for="setting-signature-name">Typed signature</label>
+        <input type="text" class="form-control" id="setting-signature-name" placeholder="Your full name" maxlength="120">
+        <div class="form-hint">Adds a typed electronic signature and date to the final page. This is not a certificate-based digital signature.</div>
+      </div>`;
+
+    case 'crop':
+      return `<div class="form-group">
+        <label class="form-label" for="setting-crop-margin">Crop equally from each edge</label>
+        <select class="form-control" id="setting-crop-margin">
+          <option value="5">5%</option>
+          <option value="10">10%</option>
+          <option value="15">15%</option>
+          <option value="20">20%</option>
+        </select>
+        <div class="form-hint">Applies the same crop to all pages.</div>
+      </div>`;
+
+    case 'unlock':
+    case 'protect':
+      return `<div class="form-group">
+        <label class="form-label" for="setting-pdf-password">${tool.workflow === 'protect' ? 'Open password' : 'PDF password'}</label>
+        <input type="password" class="form-control" id="setting-pdf-password" autocomplete="${tool.workflow === 'protect' ? 'new-password' : 'current-password'}" ${tool.workflow === 'protect' ? 'minlength="8"' : ''}>
+        ${tool.workflow === 'protect' ? '<div class="form-hint">Use at least 8 characters. Passwords are processed locally and not saved.</div>' : ''}
+      </div>`;
+
+    case 'create-pdf':
+      return `<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+        <div class="form-group">
+          <label class="form-label" for="setting-blank-size">Page size</label>
+          <select class="form-control" id="setting-blank-size">
+            <option value="a4" selected>A4</option>
+            <option value="letter">US Letter</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="setting-blank-count">Page count</label>
+          <select class="form-control" id="setting-blank-count">
+            <option value="1" selected>1 page</option>
+            <option value="2">2 pages</option>
+            <option value="5">5 pages</option>
+            <option value="10">10 pages</option>
+            <option value="20">20 pages</option>
+          </select>
+        </div>
+      </div>`;
 
     default:
       return '';
@@ -758,7 +839,7 @@ function updateFilesQueue(tool) {
 }
 
 async function executeToolOperation(tool, showAlert) {
-  if (state.selectedFiles.length === 0) {
+  if (state.selectedFiles.length === 0 && tool.workflow !== 'create-pdf') {
     showAlert('Please choose at least one file to process.');
     return;
   }
@@ -806,6 +887,10 @@ async function executeToolOperation(tool, showAlert) {
         break;
       }
 
+      case 'organize':
+        result = await processOrganizePDF(state.selectedFiles[0], document.getElementById('setting-page-order')?.value, updateProgress);
+        break;
+
       case 'rotate': {
         const activeAngle = document.querySelector('.preset-card.active')?.getAttribute('data-angle') || 90;
         result = await processRotatePDF(state.selectedFiles[0], parseInt(activeAngle, 10), updateProgress);
@@ -835,6 +920,22 @@ async function executeToolOperation(tool, showAlert) {
         break;
       }
 
+      case 'html-to-pdf':
+        result = await processHtmlToPDF(state.selectedFiles[0], updateProgress);
+        break;
+
+      case 'office-to-pdf':
+        result = await processOfficeToPDF(state.selectedFiles[0], updateProgress);
+        break;
+
+      case 'pdf-to-images':
+        result = await processPDFToImages(state.selectedFiles[0], tool.id === 'pdf-to-jpg' ? 'jpeg' : 'png', updateProgress);
+        break;
+
+      case 'pdf-to-office':
+        result = await processPdfToOffice(state.selectedFiles[0], tool.id === 'pdf-to-excel' ? 'xlsx' : 'pptx', updateProgress);
+        break;
+
       case 'compress': {
         const level = document.querySelector('.preset-card.active')?.getAttribute('data-compress') || 'recommended';
         result = await processCompressPDF(state.selectedFiles[0], level, updateProgress);
@@ -853,6 +954,34 @@ async function executeToolOperation(tool, showAlert) {
         result = await processPDFToWord(state.selectedFiles[0], updateProgress);
         break;
 
+      case 'sign':
+        result = await processSignPDF(state.selectedFiles[0], document.getElementById('setting-signature-name')?.value, updateProgress);
+        break;
+
+      case 'crop':
+        result = await processCropPDF(state.selectedFiles[0], document.getElementById('setting-crop-margin')?.value, updateProgress);
+        break;
+
+      case 'compare':
+        result = await processComparePDF(state.selectedFiles, updateProgress);
+        break;
+
+      case 'repair':
+        result = await processRepairPDF(state.selectedFiles[0], updateProgress);
+        break;
+
+      case 'unlock':
+        result = await processUnlockPDF(state.selectedFiles[0], document.getElementById('setting-pdf-password')?.value, updateProgress);
+        break;
+
+      case 'protect':
+        result = await processProtectPDF(state.selectedFiles[0], document.getElementById('setting-pdf-password')?.value, updateProgress);
+        break;
+
+      case 'ocr':
+        result = await processOCRPDF(state.selectedFiles[0], updateProgress);
+        break;
+
       case 'pdf-to-zip':
         result = await processPDFToZIP(state.selectedFiles, updateProgress);
         break;
@@ -866,7 +995,11 @@ async function executeToolOperation(tool, showAlert) {
       }
 
       case 'create-pdf':
-        result = await processCreateBlankPDF(1, 'a4', updateProgress);
+        result = await processCreateBlankPDF(
+          parseInt(document.getElementById('setting-blank-count')?.value || '1', 10),
+          document.getElementById('setting-blank-size')?.value || 'a4',
+          updateProgress
+        );
         break;
 
       default:
