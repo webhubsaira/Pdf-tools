@@ -2,21 +2,24 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const rootDir = import.meta.dirname;
+
   return {
+    root: rootDir,
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': rootDir,
       },
     },
     build: {
       rollupOptions: {
         input: {
-          main: path.resolve(__dirname, 'index.html'),
-          tools: path.resolve(__dirname, 'tools.html'),
-          about: path.resolve(__dirname, 'about.html'),
-          privacy: path.resolve(__dirname, 'privacy.html'),
-          terms: path.resolve(__dirname, 'terms.html'),
-          security: path.resolve(__dirname, 'security.html'),
+          main: path.resolve(rootDir, 'index.html'),
+          tools: path.resolve(rootDir, 'tools.html'),
+          about: path.resolve(rootDir, 'about.html'),
+          privacy: path.resolve(rootDir, 'privacy.html'),
+          terms: path.resolve(rootDir, 'terms.html'),
+          security: path.resolve(rootDir, 'security.html'),
         },
       },
     },
