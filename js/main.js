@@ -277,7 +277,7 @@ function renderToolBody(tool) {
         <div style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 18px; text-align: left; max-width: 560px; margin: 0 auto 24px; font-size: 0.875rem;">
           <strong>Deployment Architecture Note:</strong>
           <p style="margin-top: 6px; color: var(--color-text-secondary);">
-            To preserve user privacy and maintain 100% serverless browser processing, iLovePDFs runs all PDF organizing, splitting, merging, watermarking, rotating, compression, and image conversion entirely on client-side WebAssembly and JS. For proprietary Office conversion, connect your Hostinger Node.js backend or LibreOffice microservice endpoint.
+            To preserve user privacy and maintain 100% serverless browser processing, pdfilove runs all PDF organizing, splitting, merging, watermarking, rotating, compression, and image conversion entirely on client-side WebAssembly and JS. For proprietary Office conversion, connect your Hostinger Node.js backend or LibreOffice microservice endpoint.
           </p>
         </div>
         <button class="btn btn-primary" onclick="window.DocuFlowApp.openToolStudio('merge-pdf')">Explore Client-Side Tools</button>

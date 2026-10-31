@@ -1,5 +1,5 @@
 {
-  "name": "iLovePDFs - Online PDF Tools Suite",
+  "name": "pdfilove - Online PDF Tools Suite",
   "description": "Every tool you need to work with PDFs in one place. 100% free and easy to use. Merge, split, compress, convert, rotate, unlock, and watermark PDFs with just a few clicks.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

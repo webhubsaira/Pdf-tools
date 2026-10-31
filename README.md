@@ -1,6 +1,6 @@
-# iLovePDFs - Online PDF Tools Suite
+# pdfilove - Online PDF Tools Suite
 
-iLovePDFs is a complete, modern, responsive PDF tools web platform engineered with plain HTML5, CSS3, and modern JavaScript. Inspired by the clean layout and intuitive tool discovery of premium SaaS document platforms, iLovePDFs runs supported PDF operations directly inside the client's browser, eliminating server uploads and protecting user data privacy.
+pdfilove is a complete, modern, responsive PDF tools web platform engineered with plain HTML5, CSS3, and modern JavaScript. Inspired by the clean layout and intuitive tool discovery of premium SaaS document platforms, pdfilove runs supported PDF operations directly inside the client's browser, eliminating server uploads and protecting user data privacy.
 
 ---
 
