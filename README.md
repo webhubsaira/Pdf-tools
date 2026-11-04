@@ -42,10 +42,11 @@ docuflow/
 ├── privacy.html          # Privacy policy matching client-side architecture
 ├── terms.html            # Terms of service agreement
 ├── security.html         # Technical security whitepaper and sandboxing guide
-├── favicon.svg           # High-resolution SVG favicon
 ├── robots.txt            # Search engine crawl directives
 ├── sitemap.xml           # XML sitemap for SEO discovery
 ├── assets/
+│   ├── aistudio/
+│   │   └── PDFiloveTools Brand Logo.png # Site logo and favicon
 │   └── logo.svg          # DocuFlow vector logo and typography
 ├── css/
 │   ├── style.css         # Design tokens, typography, header, hero, footer
@@ -99,7 +100,7 @@ DocuFlow is designed to be deployed to any standard **Hostinger Web Hosting**, *
 
 If you prefer unbundled static deployment:
 1. Upload the root folder (`index.html`, `tools.html`, `about.html`, `privacy.html`, `terms.html`, `security.html`, `assets/`, `css/`, `js/`) into Hostinger's `public_html`. The HTML pages map `pdf-lib` and `jszip` to ESM CDN URLs with import maps, and the `assets/` directory contains the images referenced by the HTML pages.
-2. Copy `public/favicon.svg` to `public_html/favicon.svg` so the favicon URL also resolves.
+2. Keep the `assets/` directory in `public_html`; the site logo and favicon both load from `assets/aistudio/PDFiloveTools Brand Logo.png`.
 
 ### Optional: Hostinger `.htaccess` Optimization
 
