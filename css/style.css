@@ -727,19 +727,12 @@ main {
 }
 
 .tools-marquee-row:focus-within .tools-marquee-group {
-  display: grid;
-  flex: initial;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  flex-wrap: wrap;
   width: 100%;
 }
 
 .tools-marquee-row:focus-within .tools-marquee-group[aria-hidden="true"] {
   display: none;
-}
-
-.home-tools-directory .tools-marquee-row:focus-within .tool-card {
-  flex: initial;
-  min-width: 0;
 }
 
 @keyframes home-tools-marquee-left {

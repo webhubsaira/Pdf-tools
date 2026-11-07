@@ -98,7 +98,7 @@ function renderTools() {
   `;
 
   if (isHomeDirectory) {
-    const toolsPerRow = 7;
+    const toolsPerRow = 10;
     const toolRows = [];
     for (let index = 0; index < filtered.length; index += toolsPerRow) {
       toolRows.push(filtered.slice(index, index + toolsPerRow));
