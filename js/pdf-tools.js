@@ -941,39 +941,125 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       const content = frameDocument.getElementById('office-page');
       const contentHeight = Math.max(content.scrollHeight, pageHeight - 96);
       const pageCount = Math.ceil(contentHeight / pageHeight);
+      const contentRect = content.getBoundingClientRect();
+      const operations = [];
+      const frameWindow = frameDocument.defaultView;
+      if (!frameWindow) throw new Error('Could not access the Office document rendering context.');
+      const walker = frameDocument.createTreeWalker(content, frameWindow.NodeFilter.SHOW_ELEMENT | frameWindow.NodeFilter.SHOW_TEXT);
+      let node = content;
+      while (node) {
+        if (node.nodeType === frameWindow.Node.ELEMENT_NODE) {
+          const element = node;
+          const style = frameDocument.defaultView.getComputedStyle(element);
+          const rect = element.getBoundingClientRect();
+          const box = {
+            x: rect.left - contentRect.left,
+            y: rect.top - contentRect.top,
+            width: rect.width,
+            height: rect.height
+          };
+          if (element.tagName === 'IMG' && rect.width && rect.height) {
+            operations.push({ type: 'image', image: element, ...box });
+          } else if (rect.width && rect.height) {
+            if (style.backgroundColor !== 'rgba(0, 0, 0, 0)' && style.backgroundColor !== 'transparent') {
+              operations.push({ type: 'fill', color: style.backgroundColor, ...box });
+            }
+            const borders = [
+              ['borderTopWidth', 'borderTopStyle', 'borderTopColor', box.x, box.y, box.width, 0],
+              ['borderRightWidth', 'borderRightStyle', 'borderRightColor', box.x + box.width, box.y, 0, box.height],
+              ['borderBottomWidth', 'borderBottomStyle', 'borderBottomColor', box.x, box.y + box.height, box.width, 0],
+              ['borderLeftWidth', 'borderLeftStyle', 'borderLeftColor', box.x, box.y, 0, box.height]
+            ];
+            for (const [widthProperty, styleProperty, colorProperty, x, y, width, height] of borders) {
+              const borderWidth = parseFloat(style[widthProperty]);
+              if (borderWidth > 0 && style[styleProperty] !== 'none') {
+                operations.push({
+                  type: 'border',
+                  color: style[colorProperty],
+                  lineWidth: borderWidth,
+                  x,
+                  y,
+                  width,
+                  height
+                });
+              }
+            }
+          }
+        } else if (node.nodeType === frameWindow.Node.TEXT_NODE && node.textContent) {
+          const parent = node.parentElement;
+          const style = parent && frameWindow.getComputedStyle(parent);
+          if (style && style.display !== 'none' && style.visibility !== 'hidden') {
+            const range = frameDocument.createRange();
+            for (let offset = 0; offset < node.textContent.length;) {
+              const character = String.fromCodePoint(node.textContent.codePointAt(offset));
+              const nextOffset = offset + character.length;
+              range.setStart(node, offset);
+              range.setEnd(node, nextOffset);
+              const rect = range.getBoundingClientRect();
+              if (rect.width > 0 && rect.height > 0 && character.trim()) {
+                const fontSize = parseFloat(style.fontSize) || 12;
+                operations.push({
+                  type: 'text',
+                  value: character,
+                  color: style.color,
+                  font: style.font,
+                  textBaseline: rect.bottom - contentRect.top - Math.max(0, (rect.height - fontSize) / 2),
+                  x: rect.left - contentRect.left,
+                  y: rect.top - contentRect.top,
+                  fontSize
+                });
+              }
+              offset = nextOffset;
+            }
+            range.detach();
+          }
+        }
+        node = walker.nextNode();
+      }
+
       const pdf = await PDFDocument.create();
       for (let index = 0; index < pageCount; index++) {
         if (onProgress) onProgress(60 + Math.round((index + 1) / pageCount * 32), `Rendering document page ${index + 1} of ${pageCount}...`);
         const offset = index * pageHeight;
-        const markup = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${pageWidth}px;height:${pageHeight}px;overflow:hidden;background:#fff"><style>${css}</style><div style="transform:translateY(-${offset}px)">${content.outerHTML}</div></div>`;
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
-        const image = new Image();
-        const imageUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
-        try {
-          await new Promise((resolve, reject) => {
-            image.onload = resolve;
-            image.onerror = () => reject(new Error('Your browser could not render a formatted Office page.'));
-            image.src = imageUrl;
-          });
-          const canvas = document.createElement('canvas');
-          canvas.width = pageWidth * 1.5;
-          canvas.height = pageHeight * 1.5;
-          const context = canvas.getContext('2d');
-          if (!context) throw new Error('Your browser could not create a PDF page image.');
-          context.fillStyle = '#fff';
-          context.fillRect(0, 0, canvas.width, canvas.height);
-          context.drawImage(image, 0, 0, canvas.width, canvas.height);
-          const png = await new Promise((resolve, reject) => {
-            canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error(`Could not encode document page ${index + 1}.`)), 'image/png');
-          });
-          const embedded = await pdf.embedPng(await png.arrayBuffer());
-          const page = pdf.addPage([595.28, 841.89]);
-          page.drawImage(embedded, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
-          canvas.width = 0;
-          canvas.height = 0;
-        } finally {
-          URL.revokeObjectURL(imageUrl);
+        const canvas = document.createElement('canvas');
+        const scale = 1.5;
+        canvas.width = pageWidth * scale;
+        canvas.height = pageHeight * scale;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Your browser could not create a PDF page image.');
+        context.scale(scale, scale);
+        context.fillStyle = '#fff';
+        context.fillRect(0, 0, pageWidth, pageHeight);
+        for (const operation of operations) {
+          const localY = operation.y - offset;
+          if (localY + (operation.height || operation.fontSize || 0) < 0 || localY > pageHeight) continue;
+          if (operation.type === 'fill') {
+            context.fillStyle = operation.color;
+            context.fillRect(operation.x, localY, operation.width, operation.height);
+          } else if (operation.type === 'border') {
+            context.strokeStyle = operation.color;
+            context.lineWidth = operation.lineWidth;
+            context.beginPath();
+            context.moveTo(operation.x, localY);
+            context.lineTo(operation.x + operation.width, localY + operation.height);
+            context.stroke();
+          } else if (operation.type === 'image') {
+            context.drawImage(operation.image, operation.x, localY, operation.width, operation.height);
+          } else if (operation.type === 'text') {
+            context.fillStyle = operation.color;
+            context.font = operation.font;
+            context.textBaseline = 'alphabetic';
+            context.fillText(operation.value, operation.x, operation.textBaseline - offset);
+          }
         }
+        const png = await new Promise((resolve, reject) => {
+          canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error(`Could not encode document page ${index + 1}.`)), 'image/png');
+        });
+        const embedded = await pdf.embedPng(await png.arrayBuffer());
+        const page = pdf.addPage(isSpreadsheet ? [841.89, 595.28] : [595.28, 841.89]);
+        page.drawImage(embedded, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
+        canvas.width = 0;
+        canvas.height = 0;
       }
       pdf.setTitle(file.name.replace(/\.[^/.]+$/, ''));
       return {
