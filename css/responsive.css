@@ -88,6 +88,14 @@
     gap: 14px;
   }
 
+  .home-tools-directory .tools-grid:not(.is-marquee) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .home-tools-directory .tool-card {
+    flex-basis: calc((100vw - 52px) / 2);
+  }
+
   .tool-card {
     padding: 18px;
   }
@@ -204,6 +212,10 @@
   .btn {
     padding: 8px 14px;
     font-size: 0.875rem;
+  }
+
+  .home-tools-directory .tool-card {
+    flex-basis: calc((100vw - 40px) / 2);
   }
 }
 

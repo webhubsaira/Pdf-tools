@@ -70,6 +70,8 @@ function renderTools() {
 
   const filtered = filterTools(state.searchQuery, state.activeCategory);
   const isHomeDirectory = Boolean(gridContainer.closest('.home-tools-directory'));
+  const useHomeMarquee = isHomeDirectory && filtered.length > 4;
+  gridContainer.classList.toggle('is-marquee', useHomeMarquee);
 
   if (filtered.length === 0) {
     gridContainer.innerHTML = '';
@@ -97,11 +99,17 @@ function renderTools() {
       </article>
   `;
 
-  if (isHomeDirectory) {
+  if (useHomeMarquee) {
     const toolsPerRow = 10;
     const toolRows = [];
     for (let index = 0; index < filtered.length; index += toolsPerRow) {
-      toolRows.push(filtered.slice(index, index + toolsPerRow));
+      const row = filtered.slice(index, index + toolsPerRow);
+      if (filtered.length >= 4 && row.length < 4) {
+        for (let position = row.length; position < 4; position += 1) {
+          row.push(filtered[(index + position) % filtered.length]);
+        }
+      }
+      toolRows.push(row);
     }
 
     gridContainer.innerHTML = toolRows.map((row, rowIndex) => `
