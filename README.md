@@ -24,11 +24,11 @@ pdfilove is a complete, modern, responsive PDF tools web platform engineered wit
   - **JPG / PNG to PDF:** Convert multiple images into multi-page PDFs with portrait/landscape and margins.
   - **Compress PDF:** Streamline PDF streams, strip unreferenced objects, and calculate byte savings.
   - **PDF to Text:** Extract text streams into `.txt` documents.
-  - **PDF to Word:** Export editable text and append original-page images in `.docx` files to retain the source layout, tables, and graphics. Scanned pages are preserved in the visual references.
-  - **PDF to Excel / PowerPoint:** Export editable text and include original-page previews in the workbook or presentation. Table extraction is approximate; scanned pages are preserved visually.
+  - **PDF to Word:** Put original-page images first in `.docx` files to retain the source layout, tables, and graphics, followed by extracted editable text. Scanned pages are preserved visually.
+  - **PDF to Excel / PowerPoint:** Put original-page previews first in the workbook or presentation, followed by editable extracted text. Table extraction is approximate; scanned pages are preserved visually.
   - **PDF to ZIP:** Archive multiple documents into a single `.zip` file.
   - **Metadata:** Read and update PDF Title, Author, and Subject.
-- **Transparent Conversion Limits:** Office-to-PDF tools currently extract text only and do not preserve Office formatting, tables, or images. Faithful Office rendering requires a dedicated document-conversion service.
+- **Office-to-PDF:** DOCX and XLSX files are laid out and rendered locally in the browser into PDF pages, preserving common text, table, cell formatting, and embedded Word images. Some advanced Office features may render differently from Microsoft Office.
 - **Accessible & Responsive:** Fluid layouts tested across mobile (320px, 375px, 430px), tablet (768px), and desktop (1280px+).
 
 ---

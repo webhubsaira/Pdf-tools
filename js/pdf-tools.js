@@ -200,10 +200,10 @@ function makeSpreadsheetBlob(rows, pageImages = []) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`);
-  const workbookRelationships = [`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>`];
-  const sheetDefinitions = [`<sheet name="Extracted Data" sheetId="1" r:id="rId1"/>`];
+  const workbookRelationships = [];
+  const sheetDefinitions = [];
   pageImages.forEach((image, index) => {
-    const sheetId = index + 2;
+    const sheetId = index + 1;
     const relationshipId = `rId${sheetId}`;
     workbookRelationships.push(`<Relationship Id="${relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${sheetId}.xml"/>`);
     sheetDefinitions.push(`<sheet name="Page ${index + 1} Preview" sheetId="${sheetId}" r:id="${relationshipId}"/>`);
@@ -234,13 +234,17 @@ function makeSpreadsheetBlob(rows, pageImages = []) {
     zip.file(`xl/media/page-${index + 1}.png`, image.blob);
   });
 
+  const dataSheetId = pageImages.length + 1;
+  const dataRelationshipId = `rId${dataSheetId}`;
+  workbookRelationships.push(`<Relationship Id="${dataRelationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${dataSheetId}.xml"/>`);
+  sheetDefinitions.push(`<sheet name="Extracted Data" sheetId="${dataSheetId}" r:id="${dataRelationshipId}"/>`);
   zip.file('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRelationships.join('')}</Relationships>`);
   zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>${sheetDefinitions.join('')}</sheets>
 </workbook>`);
-  zip.file('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+  zip.file(`xl/worksheets/sheet${dataSheetId}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`);
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -622,8 +626,376 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     throw new Error('This Office format is not supported. Use DOCX, XLSX, or PPTX files.');
   }
 
+  async function resolveOfficePath(basePath, target) {
+    const parts = `${target.startsWith('/') ? '' : `${basePath}/`}${target}`.split('/');
+    const normalized = [];
+    for (const part of parts) {
+      if (!part || part === '.') continue;
+      if (part === '..') normalized.pop();
+      else normalized.push(part);
+    }
+    return normalized.join('/');
+  }
+
+  function officeElements(node, localName) {
+    return Array.from(node.getElementsByTagName('*')).filter((element) => element.localName === localName);
+  }
+
+  function officeAttribute(node, localName) {
+    return node.getAttribute(localName) ||
+      Array.from(node.attributes || []).find((attribute) => attribute.localName === localName)?.value ||
+      null;
+  }
+
+  function officeFontFamily(value) {
+    const safeName = String(value || '').replace(/[^a-z0-9 ,_-]/gi, '').slice(0, 80);
+    return safeName ? `font-family:${JSON.stringify(safeName)}` : '';
+  }
+
+  function officeChildren(node, localName) {
+    return Array.from(node.children || []).filter((element) => element.localName === localName);
+  }
+
+  function wordRunStyle(run) {
+    const runProperties = officeChildren(run, 'rPr')[0];
+    const css = [];
+    if (runProperties) {
+      if (officeChildren(runProperties, 'b').length) css.push('font-weight:700');
+      if (officeChildren(runProperties, 'i').length) css.push('font-style:italic');
+      if (officeChildren(runProperties, 'u').length) css.push('text-decoration:underline');
+      const color = officeChildren(runProperties, 'color')[0]?.getAttribute('val');
+      if (color && /^[0-9a-f]{6}$/i.test(color)) css.push(`color:#${color}`);
+      const size = Number(officeChildren(runProperties, 'sz')[0]?.getAttribute('val'));
+      if (size > 0) css.push(`font-size:${size / 2}pt`);
+      const font = officeChildren(runProperties, 'rFonts')[0]?.getAttribute('ascii');
+      const fontStyle = officeFontFamily(font);
+      if (fontStyle) css.push(fontStyle);
+    }
+    return `<span style="${css.join(';')}">${officeElements(run, 't').map((text) => xmlEscape(text.textContent || '')).join('')}${officeElements(run, 'tab').map(() => '&emsp;').join('')}${officeElements(run, 'br').map(() => '<br>').join('')}</span>`;
+  }
+
+  async function officeImageData(zip, path) {
+    const image = zip.file(path);
+    if (!image) throw new Error(`An embedded Office image is missing: ${path}`);
+    const blob = await image.async('blob');
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === 'string'
+        ? resolve(reader.result)
+        : reject(new Error(`Could not read embedded Office image: ${path}`));
+      reader.onerror = () => reject(new Error(`Could not read embedded Office image: ${path}`));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  async function wordDocumentHtml(file) {
+    const zip = await JSZip.loadAsync(await readFileAsArrayBuffer(file));
+    const documentFile = zip.file('word/document.xml');
+    if (!documentFile) throw new Error('This DOCX file is missing its document content.');
+    const parseXml = (xml) => new DOMParser().parseFromString(xml, 'application/xml');
+    const documentXml = parseXml(await documentFile.async('text'));
+    const relationshipsFile = zip.file('word/_rels/document.xml.rels');
+    const relationships = relationshipsFile
+      ? parseXml(await relationshipsFile.async('text'))
+      : null;
+    const imageData = new Map();
+    if (relationships) {
+      for (const relationship of officeElements(relationships, 'Relationship')) {
+        if (!relationship.getAttribute('Type')?.endsWith('/image')) continue;
+        const path = await resolveOfficePath('word', relationship.getAttribute('Target'));
+        imageData.set(relationship.getAttribute('Id'), await officeImageData(zip, path));
+      }
+    }
+
+    const renderNode = async (node) => {
+      if (node.localName === 'tbl') {
+        const rows = [];
+        for (const row of officeElements(node, 'tr').filter((element) => element.parentElement?.localName === 'tbl')) {
+          const cells = [];
+          for (const cell of officeChildren(row, 'tc')) {
+            const paragraphs = [];
+            for (const child of officeChildren(cell, 'p')) paragraphs.push(await renderNode(child));
+            cells.push(`<td>${paragraphs.join('') || '<p></p>'}</td>`);
+          }
+          rows.push(`<tr>${cells.join('')}</tr>`);
+        }
+        return `<table><tbody>${rows.join('')}</tbody></table>`;
+      }
+      if (node.localName === 'p') {
+        const alignment = officeChildren(officeChildren(node, 'pPr')[0] || document.createElement('span'), 'jc')[0]?.getAttribute('val');
+        const pStyle = alignment && ['left', 'center', 'right', 'both'].includes(alignment) ? ` style="text-align:${alignment === 'both' ? 'justify' : alignment}"` : '';
+        const parts = [];
+        for (const child of Array.from(node.children)) {
+          if (child.localName === 'r') parts.push(wordRunStyle(child));
+          if (child.localName === 'hyperlink') {
+            for (const run of officeChildren(child, 'r')) parts.push(wordRunStyle(run));
+          }
+          if (child.localName === 'bookmarkStart') continue;
+          if (child.localName === 'pPr') {
+            const numbering = officeChildren(child, 'numPr').length;
+            if (numbering) parts.unshift('<span>•&nbsp;</span>');
+          }
+          if (child.localName === 'r') {
+            for (const blip of officeElements(child, 'blip')) {
+              const relationshipId = officeAttribute(blip, 'embed');
+              const src = imageData.get(relationshipId);
+              if (!src) throw new Error(`A DOCX image relationship could not be resolved: ${relationshipId}`);
+              parts.push(`<img src="${src}" alt="Embedded document image">`);
+            }
+          }
+        }
+        return `<p${pStyle}>${parts.join('') || '&nbsp;'}</p>`;
+      }
+      return '';
+    };
+
+    const body = officeElements(documentXml, 'body')[0];
+    if (!body) throw new Error('This DOCX file has no document body.');
+    const blocks = [];
+    for (const node of Array.from(body.children)) {
+      const html = await renderNode(node);
+      if (html) blocks.push(html);
+    }
+    if (!blocks.length) throw new Error('No readable Word document content was found.');
+    return blocks.join('');
+  }
+
+  async function excelDocumentHtml(file) {
+    const zip = await JSZip.loadAsync(await readFileAsArrayBuffer(file));
+    const parseXml = (xml) => new DOMParser().parseFromString(xml, 'application/xml');
+    const workbookFile = zip.file('xl/workbook.xml');
+    if (!workbookFile) throw new Error('This XLSX file is missing its workbook content.');
+    const workbook = parseXml(await workbookFile.async('text'));
+    const workbookRelsFile = zip.file('xl/_rels/workbook.xml.rels');
+    const workbookRels = workbookRelsFile ? parseXml(await workbookRelsFile.async('text')) : null;
+    const relationshipTargets = new Map(
+      workbookRels ? officeElements(workbookRels, 'Relationship').map((relationship) => [
+        relationship.getAttribute('Id'),
+        relationship.getAttribute('Target')
+      ]) : []
+    );
+    const sharedStringsFile = zip.file('xl/sharedStrings.xml');
+    const sharedStrings = sharedStringsFile
+      ? officeElements(parseXml(await sharedStringsFile.async('text')), 'si')
+        .map((item) => officeElements(item, 't').map((text) => text.textContent || '').join(''))
+      : [];
+    const stylesFile = zip.file('xl/styles.xml');
+    const styles = stylesFile ? parseXml(await stylesFile.async('text')) : null;
+    const fonts = styles ? officeElements(officeElements(styles, 'fonts')[0] || styles, 'font') : [];
+    const fills = styles ? officeElements(officeElements(styles, 'fills')[0] || styles, 'fill') : [];
+    const cellFormats = styles ? officeElements(officeElements(styles, 'cellXfs')[0] || styles, 'xf') : [];
+    const numberFormats = new Map(styles
+      ? officeElements(styles, 'numFmt').map((format) => [Number(format.getAttribute('numFmtId')), format.getAttribute('formatCode') || ''])
+      : []);
+    const displayExcelNumber = (cell, value) => {
+      const formatId = Number(cellFormats[Number(cell.getAttribute('s') || 0)]?.getAttribute('numFmtId') || 0);
+      const formatCode = numberFormats.get(formatId) || '';
+      const number = Number(value);
+      if (!Number.isFinite(number)) return value;
+      if (formatCode.includes('%') || formatId === 9 || formatId === 10) {
+        const decimalCount = formatCode.match(/0\.([0]+)/)?.[1].length || (formatId === 10 ? 2 : 0);
+        return `${(number * 100).toFixed(decimalCount)}%`;
+      }
+      if ([14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47].includes(formatId) ||
+          /[ymdhis]{2,}/i.test(formatCode.replace(/"[^"]*"/g, ''))) {
+        const date = new Date(Date.UTC(1899, 11, 30) + number * 86400000);
+        return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
+      }
+      const decimalCount = formatCode.match(/0\.([0]+)/)?.[1].length || 0;
+      const currency = formatCode.match(/[$€£]/)?.[0];
+      if (currency) {
+        return `${currency}${number.toLocaleString(undefined, { minimumFractionDigits: decimalCount, maximumFractionDigits: decimalCount })}`;
+      }
+      if (formatCode.includes(',')) {
+        return number.toLocaleString(undefined, { minimumFractionDigits: decimalCount, maximumFractionDigits: decimalCount });
+      }
+      return decimalCount ? number.toFixed(decimalCount) : value;
+    };
+    const styleFor = (cell) => {
+      const format = cellFormats[Number(cell.getAttribute('s') || 0)];
+      if (!format) return '';
+      const css = [];
+      const font = fonts[Number(format.getAttribute('fontId') || 0)];
+      if (font) {
+        const color = officeChildren(font, 'color')[0]?.getAttribute('rgb')?.slice(-6);
+        if (color && /^[0-9a-f]{6}$/i.test(color)) css.push(`color:#${color}`);
+        if (officeChildren(font, 'b').length) css.push('font-weight:700');
+        if (officeChildren(font, 'i').length) css.push('font-style:italic');
+        const size = Number(officeChildren(font, 'sz')[0]?.getAttribute('val'));
+        if (size > 0) css.push(`font-size:${size}pt`);
+        const name = officeChildren(font, 'name')[0]?.getAttribute('val');
+        const fontStyle = officeFontFamily(name);
+        if (fontStyle) css.push(fontStyle);
+      }
+      const fill = fills[Number(format.getAttribute('fillId') || 0)];
+      const fillColor = fill && officeElements(fill, 'fgColor')[0]?.getAttribute('rgb')?.slice(-6);
+      if (fillColor && /^[0-9a-f]{6}$/i.test(fillColor)) css.push(`background-color:#${fillColor}`);
+      const alignment = officeChildren(format, 'alignment')[0];
+      const horizontalAlignment = alignment?.getAttribute('horizontal');
+      if (['left', 'center', 'right', 'justify'].includes(horizontalAlignment)) css.push(`text-align:${horizontalAlignment}`);
+      if (alignment?.getAttribute('wrapText') === '1') css.push('white-space:pre-wrap');
+      if (Number(format.getAttribute('borderId') || 0)) css.push('border:1px solid #aeb4bd');
+      return css.join(';');
+    };
+
+    const sheets = [];
+    for (const sheet of officeElements(workbook, 'sheet')) {
+      const target = relationshipTargets.get(officeAttribute(sheet, 'id'));
+      if (!target) throw new Error(`Could not locate worksheet "${sheet.getAttribute('name')}".`);
+      const path = await resolveOfficePath('xl', target);
+      const sheetFile = zip.file(path);
+      if (!sheetFile) throw new Error(`Worksheet content is missing: ${path}`);
+      const worksheet = parseXml(await sheetFile.async('text'));
+      const worksheetImages = [];
+      const drawingReference = officeElements(worksheet, 'drawing')[0];
+      if (drawingReference) {
+        const sheetDirectory = path.slice(0, path.lastIndexOf('/'));
+        const sheetRelsPath = `${sheetDirectory}/_rels/${path.slice(path.lastIndexOf('/') + 1)}.rels`;
+        const sheetRelsFile = zip.file(sheetRelsPath);
+        const drawingId = officeAttribute(drawingReference, 'id');
+        if (sheetRelsFile && drawingId) {
+          const sheetRelationships = parseXml(await sheetRelsFile.async('text'));
+          const drawingRelationship = officeElements(sheetRelationships, 'Relationship')
+            .find((relationship) => relationship.getAttribute('Id') === drawingId);
+          if (drawingRelationship) {
+            const drawingPath = await resolveOfficePath(sheetDirectory, drawingRelationship.getAttribute('Target'));
+            const drawingFile = zip.file(drawingPath);
+            if (drawingFile) {
+              const drawing = parseXml(await drawingFile.async('text'));
+              const drawingDirectory = drawingPath.slice(0, drawingPath.lastIndexOf('/'));
+              const drawingRelsPath = `${drawingDirectory}/_rels/${drawingPath.slice(drawingPath.lastIndexOf('/') + 1)}.rels`;
+              const drawingRelsFile = zip.file(drawingRelsPath);
+              const drawingRelationships = drawingRelsFile ? parseXml(await drawingRelsFile.async('text')) : null;
+              for (const blip of officeElements(drawing, 'blip')) {
+                const imageId = officeAttribute(blip, 'embed');
+                const imageRelationship = drawingRelationships && officeElements(drawingRelationships, 'Relationship')
+                  .find((relationship) => relationship.getAttribute('Id') === imageId);
+                if (!imageRelationship) throw new Error('An XLSX image relationship could not be resolved.');
+                const imagePath = await resolveOfficePath(drawingDirectory, imageRelationship.getAttribute('Target'));
+                worksheetImages.push(`<figure><img src="${await officeImageData(zip, imagePath)}" alt="Embedded worksheet image"></figure>`);
+              }
+            }
+          }
+        }
+      }
+      const rows = [];
+      for (const row of officeElements(worksheet, 'row')) {
+        const cells = [];
+        for (const cell of officeChildren(row, 'c')) {
+          const value = officeChildren(cell, 'v')[0]?.textContent || '';
+          const inline = officeElements(cell, 't').map((text) => text.textContent || '').join('');
+          const cellValue = cell.getAttribute('t') === 's' ? (sharedStrings[Number(value)] || '') :
+            cell.getAttribute('t') === 'inlineStr' ? inline : value;
+          const reference = cell.getAttribute('r') || '';
+          const column = reference.match(/[A-Z]+/i)?.[0] || '';
+          const columnIndex = column ? Array.from(column.toUpperCase()).reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0) - 1 : cells.length;
+          const renderedValue = cell.getAttribute('t') ? cellValue : displayExcelNumber(cell, cellValue);
+          cells.push(`<td style="${styleFor(cell)}">${xmlEscape(renderedValue)}</td>`);
+          cells[cells.length - 1] = { columnIndex, html: cells[cells.length - 1] };
+        }
+        if (cells.length) {
+          let output = '';
+          let cursor = 0;
+          for (const cell of cells.sort((a, b) => a.columnIndex - b.columnIndex)) {
+            while (cursor < cell.columnIndex) {
+              output += '<td></td>';
+              cursor++;
+            }
+            output += cell.html;
+            cursor++;
+          }
+          rows.push(`<tr>${output}</tr>`);
+        }
+      }
+      if (rows.length || worksheetImages.length) {
+        const table = rows.length ? `<table><tbody>${rows.join('')}</tbody></table>` : '';
+        sheets.push(`<section class="sheet"><h2>${xmlEscape(sheet.getAttribute('name') || 'Sheet')}</h2>${table}${worksheetImages.join('')}</section>`);
+      }
+    }
+    if (!sheets.length) throw new Error('No readable worksheet data was found.');
+    return sheets.join('');
+  }
+
+  async function officeHtmlToPdf(file, html, onProgress) {
+    if (onProgress) onProgress(55, 'Laying out document pages with tables and formatting...');
+    const isSpreadsheet = file.name.toLowerCase().endsWith('.xlsx');
+    const pageWidth = isSpreadsheet ? 1056 : 816;
+    const pageHeight = isSpreadsheet ? 816 : 1056;
+    const iframe = document.createElement('iframe');
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.style.cssText = `position:fixed;left:-12000px;top:0;width:${pageWidth}px;height:1200px;border:0;visibility:hidden`;
+    const frameLoaded = new Promise((resolve, reject) => {
+      iframe.onload = resolve;
+      iframe.onerror = () => reject(new Error('Could not render the Office document in the browser.'));
+    });
+    const css = `*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:#222;font-family:Arial,sans-serif;font-size:12pt}#office-page{width:${pageWidth}px;padding:48px;overflow-wrap:anywhere}p{margin:0 0 10pt;line-height:1.35;min-height:1em}table{border-collapse:collapse;table-layout:fixed;width:100%;max-width:100%;margin:8px 0 14px}td,th{border:1px solid #9aa0a6;padding:5px 7px;vertical-align:top;overflow-wrap:anywhere}img{max-width:100%;height:auto;object-fit:contain;vertical-align:middle}.sheet{margin-bottom:20px}.sheet h2{font-size:15pt;margin:0 0 10pt}`;
+    iframe.srcdoc = `<!doctype html><html><head><meta charset="utf-8"><style>${css}</style></head><body><main id="office-page">${html}</main></body></html>`;
+    document.body.appendChild(iframe);
+
+    try {
+      await frameLoaded;
+      const frameDocument = iframe.contentDocument;
+      if (!frameDocument) throw new Error('Could not access the rendered Office document.');
+      await frameDocument.fonts.ready;
+      await Promise.all(Array.from(frameDocument.images).map((image) => image.decode()));
+      const content = frameDocument.getElementById('office-page');
+      const contentHeight = Math.max(content.scrollHeight, pageHeight - 96);
+      const pageCount = Math.ceil(contentHeight / pageHeight);
+      const pdf = await PDFDocument.create();
+      for (let index = 0; index < pageCount; index++) {
+        if (onProgress) onProgress(60 + Math.round((index + 1) / pageCount * 32), `Rendering document page ${index + 1} of ${pageCount}...`);
+        const offset = index * pageHeight;
+        const markup = `<div xmlns="http://www.w3.org/1999/xhtml" style="width:${pageWidth}px;height:${pageHeight}px;overflow:hidden;background:#fff"><style>${css}</style><div style="transform:translateY(-${offset}px)">${content.outerHTML}</div></div>`;
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pageWidth}" height="${pageHeight}" viewBox="0 0 ${pageWidth} ${pageHeight}"><foreignObject width="100%" height="100%">${markup}</foreignObject></svg>`;
+        const image = new Image();
+        const imageUrl = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+        try {
+          await new Promise((resolve, reject) => {
+            image.onload = resolve;
+            image.onerror = () => reject(new Error('Your browser could not render a formatted Office page.'));
+            image.src = imageUrl;
+          });
+          const canvas = document.createElement('canvas');
+          canvas.width = pageWidth * 1.5;
+          canvas.height = pageHeight * 1.5;
+          const context = canvas.getContext('2d');
+          if (!context) throw new Error('Your browser could not create a PDF page image.');
+          context.fillStyle = '#fff';
+          context.fillRect(0, 0, canvas.width, canvas.height);
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+          const png = await new Promise((resolve, reject) => {
+            canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error(`Could not encode document page ${index + 1}.`)), 'image/png');
+          });
+          const embedded = await pdf.embedPng(await png.arrayBuffer());
+          const page = pdf.addPage([595.28, 841.89]);
+          page.drawImage(embedded, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
+          canvas.width = 0;
+          canvas.height = 0;
+        } finally {
+          URL.revokeObjectURL(imageUrl);
+        }
+      }
+      pdf.setTitle(file.name.replace(/\.[^/.]+$/, ''));
+      return {
+        data: await pdf.save(),
+        filename: `${file.name.replace(/\.[^/.]+$/, '')}.pdf`,
+        mimeType: 'application/pdf',
+        pageCount
+      };
+    } finally {
+      iframe.remove();
+    }
+  }
+
   export async function processOfficeToPDF(file, onProgress) {
     if (onProgress) onProgress(15, 'Reading Office document content...');
+    const extension = file.name.toLowerCase();
+    if (extension.endsWith('.docx')) {
+      return officeHtmlToPdf(file, await wordDocumentHtml(file), onProgress);
+    }
+    if (extension.endsWith('.xlsx')) {
+      return officeHtmlToPdf(file, await excelDocumentHtml(file), onProgress);
+    }
     const text = await extractOfficeText(file);
     if (!text.trim()) throw new Error('No text was found in this Office document.');
     if (onProgress) onProgress(55, 'Converting extracted content to PDF...');
@@ -1113,7 +1485,7 @@ export async function processPDFToWord(file, onProgress) {
 
   const pageParagraphs = await extractPdfPageTexts(file, onProgress);
   const textPages = pageParagraphs.filter((page) => page.length);
-  const documentParagraphs = [];
+  const editableParagraphs = [];
   for (let index = 0; index < textPages.length; index++) {
     for (const paragraph of textPages[index]) {
       const safeText = paragraph
@@ -1121,17 +1493,20 @@ export async function processPDFToWord(file, onProgress) {
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
-      documentParagraphs.push(`<w:p><w:r><w:t xml:space="preserve">${safeText}</w:t></w:r></w:p>`);
+      editableParagraphs.push(`<w:p><w:r><w:t xml:space="preserve">${safeText}</w:t></w:r></w:p>`);
     }
     if (index < textPages.length - 1) {
-      documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+      editableParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
     }
   }
 
   if (!textPages.length) {
-    documentParagraphs.push('<w:p><w:r><w:t>No selectable text was found. Original pages are included below as visual references.</w:t></w:r></w:p>');
+    editableParagraphs.push('<w:p><w:r><w:t>No selectable text was found. Original pages are included as visual references.</w:t></w:r></w:p>');
   }
-  documentParagraphs.push('<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Original page previews</w:t></w:r></w:p><w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+  const documentParagraphs = [
+    '<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Original page previews</w:t></w:r></w:p>',
+    '<w:p><w:r><w:br w:type="page"/></w:r></w:p>'
+  ];
 
   const zip = new JSZip();
   zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -1158,6 +1533,9 @@ export async function processPDFToWord(file, onProgress) {
       documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
     }
   });
+  documentParagraphs.push('<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Editable extracted text</w:t></w:r></w:p>');
+  documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+  documentParagraphs.push(...editableParagraphs);
   zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${documentRelationships.join('')}</Relationships>`);
   zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
