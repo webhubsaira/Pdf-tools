@@ -49,6 +49,75 @@ async function extractPdfPageTexts(file, onProgress) {
   return pages;
 }
 
+async function renderPdfPages(file, onProgress, progressStart = 15, progressEnd = 80, onPage) {
+  const pdfjsLib = await loadPdfJs();
+  const data = new Uint8Array(await readFileAsArrayBuffer(file));
+  const pdfDocument = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+
+  for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
+    if (onProgress) {
+      const progress = progressStart + Math.round(pageNumber / pdfDocument.numPages * (progressEnd - progressStart));
+      onProgress(progress, `Rendering visual reference for page ${pageNumber} of ${pdfDocument.numPages}...`);
+    }
+
+    const page = await pdfDocument.getPage(pageNumber);
+    const scale = 1.5;
+    const viewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.ceil(viewport.width);
+    canvas.height = Math.ceil(viewport.height);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser could not create an image canvas.');
+    await page.render({ canvasContext: context, viewport }).promise;
+    const image = await new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error(`Could not render PDF page ${pageNumber}.`)), 'image/png');
+    });
+    await onPage(image, viewport.width / scale, viewport.height / scale, pageNumber);
+    canvas.width = 0;
+    canvas.height = 0;
+  }
+
+  return pdfDocument.numPages;
+}
+
+function imageDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === 'string'
+      ? resolve(reader.result)
+      : reject(new Error('Could not prepare a rendered page image.'));
+    reader.onerror = () => reject(new Error('Could not prepare a rendered page image.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function imageDrawingXml(imageId, pageNumber, width, height) {
+  const maxWidth = 6.2 * 914400;
+  const maxHeight = 9.6 * 914400;
+  const ratio = width / height;
+  let cx = maxWidth;
+  let cy = cx / ratio;
+  if (cy > maxHeight) {
+    cy = maxHeight;
+    cx = cy * ratio;
+  }
+
+  return `<w:p><w:pPr><w:jc w:val="center"/></w:pPr><w:r><w:drawing>
+    <wp:inline distT="0" distB="0" distL="0" distR="0">
+      <wp:extent cx="${Math.round(cx)}" cy="${Math.round(cy)}"/>
+      <wp:docPr id="${pageNumber}" name="Original page ${pageNumber}" descr="Visual reference of original PDF page ${pageNumber}"/>
+      <wp:cNvGraphicFramePr><a:graphicFrameLocks noChangeAspect="1"/></wp:cNvGraphicFramePr>
+      <a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture">
+        <pic:pic>
+          <pic:nvPicPr><pic:cNvPr id="${pageNumber}" name="Original page ${pageNumber}"/><pic:cNvPicPr><a:picLocks noChangeAspect="1"/></pic:cNvPicPr></pic:nvPicPr>
+          <pic:blipFill><a:blip r:embed="${imageId}"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill>
+          <pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr>
+        </pic:pic>
+      </a:graphicData></a:graphic>
+    </wp:inline>
+  </w:drawing></w:r></w:p>`;
+}
+
 function xmlEscape(value) {
   return String(value).replace(/[&<>"']/g, (character) => ({
     '&': '&amp;',
@@ -104,7 +173,7 @@ function textToPdfDocument(text, title, onProgress) {
   });
 }
 
-function makeSpreadsheetBlob(rows) {
+function makeSpreadsheetBlob(rows, pageImages = []) {
   const zip = new JSZip();
   const sheetRows = rows.map((row, rowIndex) => {
     const cells = row.map((value, colIndex) => {
@@ -122,20 +191,54 @@ function makeSpreadsheetBlob(rows) {
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  ${Array.from({ length: pageImages.length + 1 }, (_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}
+  ${pageImages.map((_, index) => `<Override PartName="/xl/drawings/drawing${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('')}
 </Types>`);
   zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
 </Relationships>`);
+  const workbookRelationships = [`<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>`];
+  const sheetDefinitions = [`<sheet name="Extracted Data" sheetId="1" r:id="rId1"/>`];
+  pageImages.forEach((image, index) => {
+    const sheetId = index + 2;
+    const relationshipId = `rId${sheetId}`;
+    workbookRelationships.push(`<Relationship Id="${relationshipId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${sheetId}.xml"/>`);
+    sheetDefinitions.push(`<sheet name="Page ${index + 1} Preview" sheetId="${sheetId}" r:id="${relationshipId}"/>`);
+    zip.file(`xl/worksheets/sheet${sheetId}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheetData/><drawing r:id="rId1"/></worksheet>`);
+    zip.file(`xl/worksheets/_rels/sheet${sheetId}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing${index + 1}.xml"/></Relationships>`);
+
+    const maxWidth = 6.5 * 914400;
+    const maxHeight = 9 * 914400;
+    const ratio = image.width / image.height;
+    let cx = maxWidth;
+    let cy = cx / ratio;
+    if (cy > maxHeight) {
+      cy = maxHeight;
+      cx = cy * ratio;
+    }
+    zip.file(`xl/drawings/drawing${index + 1}.xml`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/>
+    <xdr:pic><xdr:nvPicPr><xdr:cNvPr id="1" name="Original page ${index + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>
+      <xdr:blipFill><a:blip r:embed="rId1"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>
+      <xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${Math.round(cx)}" cy="${Math.round(cy)}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr>
+    </xdr:pic><xdr:clientData/></xdr:oneCellAnchor>
+</xdr:wsDr>`);
+    zip.file(`xl/drawings/_rels/drawing${index + 1}.xml.rels`, `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/page-${index + 1}.png"/></Relationships>`);
+    zip.file(`xl/media/page-${index + 1}.png`, image.blob);
+  });
+
   zip.file('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
-</Relationships>`);
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${workbookRelationships.join('')}</Relationships>`);
   zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Extracted Data" sheetId="1" r:id="rId1"/></sheets>
+  <sheets>${sheetDefinitions.join('')}</sheets>
 </workbook>`);
   zip.file('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`);
@@ -567,14 +670,17 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
   export async function processPdfToOffice(file, format, onProgress) {
     const pages = await extractPdfPageTexts(file, onProgress);
     const lines = pages.flat();
-    if (!lines.length) throw new Error('No selectable text was found. Scanned documents require the OCR PDF tool first.');
     const base = file.name.replace(/\.[^/.]+$/, '');
+    const pageImages = [];
+    await renderPdfPages(file, onProgress, 82, 91, async (blob, width, height) => {
+      pageImages.push({ blob, width, height });
+    });
 
     if (format === 'xlsx') {
-      if (onProgress) onProgress(85, 'Building spreadsheet...');
+      if (onProgress) onProgress(93, 'Building spreadsheet with editable text and page previews...');
       const rows = lines.map((line) => line.split(/\t+|\s{2,}/).filter(Boolean));
       return {
-        data: await makeSpreadsheetBlob(rows),
+        data: await makeSpreadsheetBlob(rows.length ? rows : [['No selectable text was found.']], pageImages),
         filename: `${base}.xlsx`,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         pageCount: pages.length
@@ -582,13 +688,13 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     }
 
     if (format === 'pptx') {
-      if (onProgress) onProgress(80, 'Building presentation slides...');
+      if (onProgress) onProgress(93, 'Building editable slides and original page previews...');
       const PptxGenJS = (await import('pptxgenjs')).default;
       const presentation = new PptxGenJS();
       presentation.layout = 'LAYOUT_WIDE';
       pages.forEach((pageLines, index) => {
         const slide = presentation.addSlide();
-        slide.addText(pageLines.join('\n') || `Page ${index + 1}`, {
+        slide.addText(pageLines.join('\n') || 'No selectable text was found on this page.', {
           x: 0.6,
           y: 0.5,
           w: 12.1,
@@ -601,6 +707,16 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
           fit: 'shrink'
         });
       });
+      for (let index = 0; index < pageImages.length; index++) {
+        const image = pageImages[index];
+        const slide = presentation.addSlide();
+        const data = await imageDataUrl(image.blob);
+        const pageRatio = image.width / image.height;
+        const slideRatio = 13.333 / 7.5;
+        const width = pageRatio > slideRatio ? 13.333 : 7.5 * pageRatio;
+        const height = pageRatio > slideRatio ? 13.333 / pageRatio : 7.5;
+        slide.addImage({ data, x: (13.333 - width) / 2, y: (7.5 - height) / 2, w: width, h: height });
+      }
       const data = await presentation.write({ outputType: 'blob' });
       return {
         data,
@@ -988,7 +1104,7 @@ export async function processPDFToText(file, onProgress) {
 }
 
 /**
- * Extract selectable text from a PDF and package it as an editable Word document.
+ * Package editable PDF text and rendered page previews in a Word document.
  */
 export async function processPDFToWord(file, onProgress) {
   if (!file) {
@@ -996,14 +1112,10 @@ export async function processPDFToWord(file, onProgress) {
   }
 
   const pageParagraphs = await extractPdfPageTexts(file, onProgress);
-  if (!pageParagraphs.some((page) => page.length)) {
-    throw new Error('No selectable text was found. Use the OCR PDF tool for scanned documents.');
-  }
-
-  if (onProgress) onProgress(82, 'Building editable Word document...');
+  const textPages = pageParagraphs.filter((page) => page.length);
   const documentParagraphs = [];
-  for (let index = 0; index < pageParagraphs.length; index++) {
-    for (const paragraph of pageParagraphs[index]) {
+  for (let index = 0; index < textPages.length; index++) {
+    for (const paragraph of textPages[index]) {
       const safeText = paragraph
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
         .replace(/&/g, '&amp;')
@@ -1011,16 +1123,22 @@ export async function processPDFToWord(file, onProgress) {
         .replace(/>/g, '&gt;');
       documentParagraphs.push(`<w:p><w:r><w:t xml:space="preserve">${safeText}</w:t></w:r></w:p>`);
     }
-    if (index < pageParagraphs.length - 1) {
+    if (index < textPages.length - 1) {
       documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
     }
   }
+
+  if (!textPages.length) {
+    documentParagraphs.push('<w:p><w:r><w:t>No selectable text was found. Original pages are included below as visual references.</w:t></w:r></w:p>');
+  }
+  documentParagraphs.push('<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Original page previews</w:t></w:r></w:p><w:p><w:r><w:br w:type="page"/></w:r></w:p>');
 
   const zip = new JSZip();
   zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
+  <Default Extension="png" ContentType="image/png"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 </Types>`);
@@ -1028,10 +1146,20 @@ export async function processPDFToWord(file, onProgress) {
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
 </Relationships>`);
+  const documentRelationships = ['<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'];
+  let imageIndex = 0;
+  await renderPdfPages(file, onProgress, 82, 91, async (blob, width, height, pageNumber) => {
+    imageIndex++;
+    const imageId = `rId${imageIndex + 1}`;
+    documentRelationships.push(`<Relationship Id="${imageId}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/page-${pageNumber}.png"/>`);
+    zip.file(`word/media/page-${pageNumber}.png`, blob);
+    documentParagraphs.push(imageDrawingXml(imageId, pageNumber, width, height));
+    if (pageNumber < pageParagraphs.length) {
+      documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+    }
+  });
   zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-</Relationships>`);
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${documentRelationships.join('')}</Relationships>`);
   zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
@@ -1039,9 +1167,14 @@ export async function processPDFToWord(file, onProgress) {
     <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr>
     <w:pPr><w:spacing w:after="120"/></w:pPr>
   </w:style>
+  <w:style w:type="paragraph" w:styleId="Heading1">
+    <w:name w:val="heading 1"/><w:basedOn w:val="Normal"/>
+    <w:rPr><w:b/><w:sz w:val="32"/></w:rPr>
+    <w:pPr><w:keepNext/></w:pPr>
+  </w:style>
 </w:styles>`);
   zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture">
   <w:body>
     ${documentParagraphs.join('')}
     <w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>
