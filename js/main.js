@@ -69,6 +69,7 @@ function renderTools() {
   if (!gridContainer) return;
 
   const filtered = filterTools(state.searchQuery, state.activeCategory);
+  const isHomeDirectory = Boolean(gridContainer.closest('.home-tools-directory'));
 
   if (filtered.length === 0) {
     gridContainer.innerHTML = '';
@@ -78,9 +79,8 @@ function renderTools() {
 
   if (emptyState) emptyState.classList.remove('visible');
 
-  gridContainer.innerHTML = filtered.map(tool => {
-    return `
-      <article class="tool-card" data-id="${tool.id}" data-cat="${tool.category}" role="button" tabindex="0" aria-label="Open ${tool.name}">
+  const renderToolCard = (tool, isDuplicate = false) => `
+      <article class="tool-card" data-id="${tool.id}" data-cat="${tool.category}" role="button" tabindex="${isDuplicate ? '-1' : '0'}" aria-label="Open ${tool.name}"${isDuplicate ? ' aria-hidden="true"' : ''}>
         ${tool.badge ? `<span class="tool-badge badge-${tool.badge.toLowerCase()}">${tool.badge}</span>` : ''}
         <div class="tool-icon-wrap" aria-hidden="true">
           ${tool.icon}
@@ -95,8 +95,26 @@ function renderTools() {
           </span>
         </div>
       </article>
-    `;
-  }).join('');
+  `;
+
+  if (isHomeDirectory) {
+    const toolsPerRow = 7;
+    const toolRows = [];
+    for (let index = 0; index < filtered.length; index += toolsPerRow) {
+      toolRows.push(filtered.slice(index, index + toolsPerRow));
+    }
+
+    gridContainer.innerHTML = toolRows.map((row, rowIndex) => `
+      <div class="tools-marquee-row${rowIndex % 2 === 1 ? ' is-reversed' : ''}">
+        <div class="tools-marquee-track">
+          <div class="tools-marquee-group">${row.map(tool => renderToolCard(tool)).join('')}</div>
+          <div class="tools-marquee-group" aria-hidden="true">${row.map(tool => renderToolCard(tool, true)).join('')}</div>
+        </div>
+      </div>
+    `).join('');
+  } else {
+    gridContainer.innerHTML = filtered.map(tool => renderToolCard(tool)).join('');
+  }
 
   // Attach click & enter key handlers to cards
   gridContainer.querySelectorAll('.tool-card').forEach(card => {
