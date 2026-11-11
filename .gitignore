@@ -6,3 +6,10 @@ coverage/
 *.log
 .env*
 !.env.example
+.secrets/
+.vercel/
+credentials*.json
+service-account*.json
+*.pem
+*.p12
+*.pfx

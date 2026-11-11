@@ -24,11 +24,12 @@ pdfilove is a complete, modern, responsive PDF tools web platform engineered wit
   - **JPG / PNG to PDF:** Convert multiple images into multi-page PDFs with portrait/landscape and margins.
   - **Compress PDF:** Streamline PDF streams, strip unreferenced objects, and calculate byte savings.
   - **PDF to Text:** Extract text streams into `.txt` documents.
-  - **PDF to Word:** Put original-page images first in `.docx` files to retain the source layout, tables, and graphics, followed by extracted editable text. Scanned pages are preserved visually.
-  - **PDF to Excel / PowerPoint:** Put original-page previews first in the workbook or presentation, followed by editable extracted text. Table extraction is approximate; scanned pages are preserved visually.
+  - **PDF to Word:** Rebuild selectable PDF text as editable Word text with approximate positions and formatting. Scanned pages and non-text graphics are not included; scanned PDFs require OCR.
+  - **PDF to Excel:** Place selectable text into editable spreadsheet cells based on its position; table extraction is approximate. Scanned pages and graphics are not included.
+  - **PDF to PowerPoint:** Rebuild selectable PDF text as editable, positioned slide text. Layout is approximate; scanned pages and non-text graphics are not included.
   - **PDF to ZIP:** Archive multiple documents into a single `.zip` file.
   - **Metadata:** Read and update PDF Title, Author, and Subject.
-- **Office-to-PDF:** DOCX and XLSX files are laid out and rendered locally in the browser into PDF pages, preserving common text, table, cell formatting, and embedded Word images. Some advanced Office features may render differently from Microsoft Office.
+- **Document-to-PDF:** DOCX and XLSX documents are laid out locally in the browser with support for common text, tables, cell formatting, and embedded images; PPTX slides preserve positioned text, colors, shapes, and images where supported. Embedded HTML styles and data images are rendered; TXT files are formatted as readable text. This client-side renderer does not guarantee exact Microsoft Office pagination or support every advanced document feature.
 - **Accessible & Responsive:** Fluid layouts tested across mobile (320px, 375px, 430px), tablet (768px), and desktop (1280px+).
 
 ---
@@ -41,7 +42,8 @@ docuflow/
 ├── tools.html            # Full searchable PDF tools directory
 ├── about.html            # Platform mission, philosophy, and privacy explanation
 ├── privacy.html          # Privacy policy matching client-side architecture
-├── terms.html            # Terms of service agreement
+├── terms.html            # Terms and conditions
+├── contact.html          # Contact information and support email
 ├── security.html         # Technical security whitepaper and sandboxing guide
 ├── robots.txt            # Search engine crawl directives
 ├── sitemap.xml           # XML sitemap for SEO discovery
@@ -100,7 +102,7 @@ DocuFlow is designed to be deployed to any standard **Hostinger Web Hosting**, *
 ### Method 2: Deploying Static Files Directly
 
 If you prefer unbundled static deployment:
-1. Upload the root folder (`index.html`, `tools.html`, `about.html`, `privacy.html`, `terms.html`, `security.html`, `assets/`, `css/`, `js/`) into Hostinger's `public_html`. The HTML pages map `pdf-lib` and `jszip` to ESM CDN URLs with import maps, and the `assets/` directory contains the images referenced by the HTML pages.
+1. Upload the root folder (`index.html`, `tools.html`, `about.html`, `privacy.html`, `terms.html`, `contact.html`, `security.html`, `assets/`, `css/`, `js/`) into Hostinger's `public_html`. The HTML pages map `pdf-lib` and `jszip` to ESM CDN URLs with import maps, and the `assets/` directory contains the images referenced by the HTML pages.
 2. Keep the `assets/` directory in `public_html`; the site logo and favicon both load from `assets/aistudio/PDFiloveTools Brand Logo.png`.
 
 ### Optional: Hostinger `.htaccess` Optimization
@@ -134,3 +136,11 @@ Create a `.htaccess` file inside `public_html` for compression, caching, and sec
 ## 🔒 Security & Privacy Notice
 
 DocuFlow processes supported operations (Merge, Split, Rotate, Watermark, Compress, Page Numbers, Images to PDF, etc.) locally on the client's device using JavaScript and WebAssembly. At no point are your document contents sent to our servers.
+
+### Keeping credentials private
+
+- Never commit API keys, access tokens, passwords, private keys, or production credentials. Do not put them in source code, pull requests, code review comments, issues, screenshots, or logs.
+- Keep credentials in your hosting provider's secret manager or in a server-side environment variable. A key placed in browser code or a `VITE_*` variable is included in public assets and is not secret; call protected APIs through a server-side endpoint instead.
+- `.env.example` is for names and dummy placeholders only. Store real local values in an ignored `.env` file and do not remove the ignore rules.
+- Pull requests and pushes are checked for likely secrets by the Gitleaks workflow. A scan is a safety net, not a guarantee; review findings and rotate exposed credentials.
+- If a credential was committed, revoke or rotate it immediately. Deleting the file or making the repository private does not remove it from Git history, existing clones, or prior reviews.
