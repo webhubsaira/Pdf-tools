@@ -268,8 +268,21 @@ function initHeroActions() {
 function pickToolForFiles(files) {
   const images = files.filter((file) => file.type === 'image/png' || file.type === 'image/jpeg');
   const pdfs = files.filter((file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
-  const unsupported = files.filter((file) => !images.includes(file) && !pdfs.includes(file));
+  // Word, Excel and PowerPoint documents are converted straight to PDF.
+  const office = files.filter((file) => /\.(docx|xlsx|pptx)$/i.test(file.name));
+  const unsupported = files.filter((file) => !images.includes(file) && !pdfs.includes(file) && !office.includes(file));
 
+  if (office.length && !images.length && !pdfs.length && !unsupported.length) {
+    const extension = office[0].name.toLowerCase().slice(office[0].name.lastIndexOf('.'));
+    const toolId = { '.docx': 'word-to-pdf', '.xlsx': 'excel-to-pdf', '.pptx': 'powerpoint-to-pdf' }[extension];
+    return office.length === 1
+      ? { toolId, validFiles: office }
+      : {
+        toolId,
+        validFiles: office.slice(0, 1),
+        notice: `Office to PDF converts one document at a time. Starting with "${office[0].name}".`
+      };
+  }
   if (images.length && !pdfs.length && !unsupported.length) {
     const allPng = images.every((file) => file.type === 'image/png' || /\.png$/i.test(file.name));
     return { toolId: allPng ? 'png-to-pdf' : 'jpg-to-pdf', validFiles: images };
@@ -296,7 +309,7 @@ function pickToolForFiles(files) {
   return {
     toolId: 'compress-pdf',
     validFiles: files.slice(0, 1),
-    notice: 'That file type is not supported yet. Choose a PDF, JPG or PNG file.'
+    notice: 'That file type is not supported yet. Choose a PDF, JPG, PNG, Word, Excel or PowerPoint file.'
   };
 }
 
