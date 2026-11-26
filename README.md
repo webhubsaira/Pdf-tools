@@ -1,129 +1,137 @@
 # pdfilove - Online PDF Tools Suite
 
-pdfilove is a complete, modern, responsive PDF tools web platform engineered with plain HTML5, CSS3, and modern JavaScript. Inspired by the clean layout and intuitive tool discovery of premium SaaS document platforms, pdfilove runs supported PDF operations directly inside the client's browser, eliminating server uploads and protecting user data privacy.
+pdfilove is a browser-side PDF toolkit: 30+ tools built with plain HTML, CSS and modern JavaScript. Supported operations run entirely inside the visitor's browser with `pdf-lib`, `pdf.js`, `jszip`, `tesseract.js` and `pptxgenjs` - documents are never uploaded to a server.
+
+- **Brand:** pdfilove, coral accent `#E84C4F`
+- **Stack:** Vite + vanilla ES modules (no framework), `tsc` with `checkJs` for type checking
+- **Tests:** Vitest + jsdom, 67 tests covering the PDF engine, page-range parsing, file validation and the tool dialog UI
 
 ---
 
-## 🚀 Key Features
+## Features
 
-- **Original Brand Identity:** Custom DocuFlow document-flow logo and coral-red accent design system (`#E84C4F`).
-- **Comprehensive Tool Directory:** 24+ tools arranged across 6 core categories:
-  1. **Organize PDF:** Merge PDF, Split PDF, Remove Pages, Extract Pages, Organize PDF, Rotate PDF.
-  2. **Optimize PDF:** Compress PDF, Unlock PDF, Protect PDF, Flatten PDF, Repair PDF.
-  3. **Convert to PDF:** JPG to PDF, PNG to PDF, HTML to PDF, Word to PDF, Excel to PDF, PowerPoint to PDF.
-  4. **Convert from PDF:** PDF to JPG, PDF to PNG, PDF to Text, PDF to Word, PDF to Excel, PDF to PowerPoint.
-  5. **Edit PDF:** Watermark PDF, Page Numbers, Sign PDF, Crop PDF, Compare PDF.
-  6. **Additional Utilities:** PDF Metadata, PDF to ZIP, Create Blank PDF, OCR PDF.
-- **Real Client-Side Operations:** Powered by `pdf-lib` and `jszip` in browser memory:
-  - **Merge PDF:** Combine multiple PDF files in any order.
-  - **Split PDF:** Extract custom page spans (e.g., `1-3, 5`).
-  - **Remove Pages:** Delete selected pages from documents.
-  - **Rotate PDF:** Rotate 90°, 180°, or 270° clockwise or counter-clockwise.
-  - **Watermark PDF:** Apply centered diagonal watermark text with opacity, custom font size, and color across every page.
-  - **Page Numbers:** Insert clean `Page {n} of {total}` numbering at bottom or top corners.
-  - **JPG / PNG to PDF:** Convert multiple images into multi-page PDFs with portrait/landscape and margins.
-  - **Compress PDF:** Streamline PDF streams, strip unreferenced objects, and calculate byte savings.
-  - **PDF to Text:** Extract text streams into `.txt` documents.
-  - **PDF to Word:** Rebuild selectable PDF text as editable Word text with approximate positions and formatting. Scanned pages and non-text graphics are not included; scanned PDFs require OCR.
-  - **PDF to Excel:** Place selectable text into editable spreadsheet cells based on its position; table extraction is approximate. Scanned pages and graphics are not included.
-  - **PDF to PowerPoint:** Rebuild selectable PDF text as editable, positioned slide text. Layout is approximate; scanned pages and non-text graphics are not included.
-  - **PDF to ZIP:** Archive multiple documents into a single `.zip` file.
-  - **Metadata:** Read and update PDF Title, Author, and Subject.
-- **Document-to-PDF:** DOCX and XLSX documents are laid out locally in the browser with support for common text, tables, cell formatting, and embedded images; PPTX slides preserve positioned text, colors, shapes, and images where supported. Embedded HTML styles and data images are rendered; TXT files are formatted as readable text. This client-side renderer does not guarantee exact Microsoft Office pagination or support every advanced document feature.
-- **Accessible & Responsive:** Fluid layouts tested across mobile (320px, 375px, 430px), tablet (768px), and desktop (1280px+).
+**Organize PDF** - Merge, Split (one file per page), Extract Pages, Remove Pages, Organize (reorder), Rotate.
+**Optimize PDF** - Compress (rasterized or lossless, whichever is smaller), Unlock, Protect (AES-256), Flatten, Repair.
+**Convert to PDF** - JPG, PNG, HTML/TXT, Word (DOCX), Excel (XLSX), PowerPoint (PPTX).
+**Convert from PDF** - JPG, PNG, Text, Word, Excel, PowerPoint (selectable text only; scanned pages need OCR).
+**Edit PDF** - Watermark (text, size, opacity, angle, colour), Page Numbers (five positions, custom start), Sign (typed e-signature), Crop, Compare.
+**Utilities** - PDF Metadata (title/author/subject/keywords), PDF to ZIP, Create Blank PDF, OCR (English, on-device).
+
+### Known limitations
+
+- Standard PDF fonts are WinAnsi-only, so watermark/signature/page-number text must be Latin. Non-Latin input fails with a clear message instead of drawing `?`.
+- Password-protected PDFs must be unlocked first: editing an encrypted file would silently produce a corrupt document, so the engine refuses it.
+- DOCX/XLSX/PPTX layout is an approximation of Microsoft Office pagination.
+- PDF to Word/Excel/PowerPoint handles selectable text; images and scanned pages are not included.
 
 ---
 
-## 📁 Project Structure
+## Project structure
 
 ```text
-docuflow/
-├── index.html            # Main homepage with hero, search, filterable grid, CTA
-├── tools.html            # Full searchable PDF tools directory
-├── about.html            # Platform mission, philosophy, and privacy explanation
-├── privacy.html          # Privacy policy matching client-side architecture
+.
+├── index.html            # Home: hero, uploader, featured cards, tool grid
+├── tools.html            # Full searchable tool directory
+├── about.html            # Mission and privacy philosophy
+├── privacy.html          # Privacy policy
 ├── terms.html            # Terms and conditions
-├── contact.html          # Contact information and support email
-├── security.html         # Technical security whitepaper and sandboxing guide
-├── robots.txt            # Search engine crawl directives
-├── sitemap.xml           # XML sitemap for SEO discovery
+├── contact.html          # Support contact
+├── security.html         # Security architecture write-up
+├── robots.txt            # Crawl directives (absolute sitemap URL)
+├── sitemap.xml           # Canonical URLs for search engines
 ├── assets/
-│   ├── aistudio/
-│   │   └── PDFiloveTools Brand Logo.png # Site logo and favicon
-│   └── logo.svg          # DocuFlow vector logo and typography
+│   ├── logo-512.webp     # Header/footer logo (also .png for social cards)
+│   ├── logo-96.png       # Small logo
+│   └── aistudio/         # Featured banner artwork
+├── public/
+│   ├── favicon.svg       # Primary favicon
+│   └── favicon-96.png    # PNG fallback + apple-touch-icon
 ├── css/
-│   ├── style.css         # Design tokens, typography, header, hero, footer
-│   ├── responsive.css    # Mobile-first breakpoints and drawer styles
-│   └── tools.css         # Upload area, file queue, progress, settings, and modal
-└── js/
-    ├── main.js           # App controller, tool modal, search & filter logic
-    ├── navigation.js     # Hamburger menu drawer & scroll observers
-    ├── tools.js          # Registry data for all 6 PDF tool categories
-    ├── file-handler.js   # Drag & drop, validation, ArrayBuffer, Blob downloads
-    ├── pdf-tools.js      # Real PDF-Lib and JSZip document transformations
+│   ├── style.css         # Design tokens, header, hero, footer, scroll lock
+│   ├── responsive.css    # Breakpoints, drawer, reduced motion
+│   └── tools.css         # Upload zone, queue, settings, processing, modal
+├── js/
+│   ├── main.js           # App controller: grid, search, modal, tool execution
+│   ├── navigation.js     # Mobile drawer, header elevation, year sync
+│   ├── tools.js          # Tool registry (single source of truth) + JSDoc types
+│   ├── file-handler.js   # Validation, ArrayBuffer/DataURL/text reading, downloads
+│   └── pdf-tools.js      # PDF engine (lazy-loaded chunk)
+├── tests/
+│   ├── pdf-tools.test.js      # Engine: merge, split, rotate, watermark, metadata…
+│   ├── page-ranges.test.js    # parsePageRanges happy path + every rejection
+│   ├── file-handler.test.js   # validateFile, formatBytes, downloads
+│   └── ui.test.js             # Hero routing, filter ARIA, dialog focus trap
+├── types/vite-env.d.ts   # Ambient types (including `*?url` imports)
+├── vitest.config.ts      # jsdom test environment
+└── vite.config.ts        # Multi-page build
 ```
+
+### Bundle shape
+
+`js/pdf-tools.js` is imported dynamically, so the entry chunk stays small and the legal/marketing pages do not download the PDF engine:
+
+| chunk | size | loaded by |
+| --- | --- | --- |
+| `assets/main-*.js` | ~58 kB | every page |
+| `assets/pdf-tools-*.js` | ~570 kB | first tool run |
+| `assets/pdf-*.js` + worker | ~1.7 MB | first pdf.js operation |
+
+CI fails if the entry chunk grows past 200 kB, which is what happens if the engine is ever imported statically again.
 
 ---
 
-## 🛠️ Local Development
-
-To run the local preview server:
+## Local development
 
 ```bash
-# Install dependencies
-npm install
+npm ci            # install exact dependency versions
+npm run dev       # http://localhost:3000 (binds 0.0.0.0)
+npm run typecheck # tsc --noEmit over js/ (checkJs enabled)
+npm test          # Vitest + jsdom
+npm run build     # production bundle in dist/
+npm run preview   # serve dist/ on 0.0.0.0
+```
 
-# Start local development server on port 3000
-npm run dev
+Requirements: Node.js >= 20.19.
 
-# Build production assets
+Only `package-lock.json` is committed. If you use Bun or pnpm, do not commit a second lockfile - mixed lockfiles drift and break `npm ci`.
+
+### Conventions
+
+- Every new tool needs an entry in `js/tools.js` (`workflow`, `accept`, `multiple`) plus a `case` in `getToolActionBtnLabel`, `getToolSpecificSettingsHTML` and `executeToolOperation` in `js/main.js`.
+- The engine must refuse encrypted input through `loadEditablePdf()` and draw standard-font text through `drawStandardText()`/`measureStandardText()`.
+- Add a test next to the behaviour you changed. `npm test` must pass before a PR is merged.
+
+---
+
+## Deployment
+
+### Vercel
+
+`vercel.json` builds with `npm run build` and serves `dist/`.
+
+### Hostinger / any static host
+
+```bash
 npm run build
 ```
 
----
+Upload the **contents** of `dist/` into `public_html`. The build emits `index.html`, `tools.html`, the legal pages and hashed assets, so no bundler is needed on the host.
 
-## 🌐 Deploying to Hostinger
-
-DocuFlow is designed to be deployed to any standard **Hostinger Web Hosting**, **Hostinger Cloud**, or **Hostinger VPS** plan.
-
-### Method 1: Deploying Production Build (Recommended)
-
-1. Build the production bundle:
-   ```bash
-   npm run build
-   ```
-2. This generates a standalone `dist/` directory containing all HTML pages, minified CSS, bundled JS, and assets.
-3. Log in to your **Hostinger hPanel**.
-4. Navigate to **Websites** &rarr; select your domain &rarr; click **File Manager** (or connect via FTP/SFTP using FileZilla).
-5. Open the `public_html` directory.
-6. Upload the contents of the `dist/` folder directly into `public_html`.
-7. Your site will be live immediately at `https://yourdomain.com`.
-
-### Method 2: Deploying Static Files Directly
-
-If you prefer unbundled static deployment:
-1. Upload the root folder (`index.html`, `tools.html`, `about.html`, `privacy.html`, `terms.html`, `contact.html`, `security.html`, `assets/`, `css/`, `js/`) into Hostinger's `public_html`. The HTML pages map `pdf-lib` and `jszip` to ESM CDN URLs with import maps, and the `assets/` directory contains the images referenced by the HTML pages.
-2. Keep the `assets/` directory in `public_html`; the site logo and favicon both load from `assets/aistudio/PDFiloveTools Brand Logo.png`.
-
-### Optional: Hostinger `.htaccess` Optimization
-
-Create a `.htaccess` file inside `public_html` for compression, caching, and security headers:
+Recommended `.htaccess` additions:
 
 ```apache
-# Enable Gzip Compression
 <IfModule mod_deflate.c>
-  AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css text/javascript application/javascript application/json image/svg+xml
+  AddOutputFilterByType DEFLATE text/html text/css application/javascript application/json image/svg+xml
 </IfModule>
 
-# Browser Caching Headers
 <IfModule mod_expires.c>
   ExpiresActive On
   ExpiresByType image/svg+xml "access plus 1 month"
-  ExpiresByType text/css "access plus 1 month"
-  ExpiresByType application/javascript "access plus 1 month"
+  ExpiresByType image/webp "access plus 1 month"
+  ExpiresByType text/css "access plus 1 year"
+  ExpiresByType application/javascript "access plus 1 year"
 </IfModule>
 
-# Security Headers
 <IfModule mod_headers.c>
   Header set X-Content-Type-Options "nosniff"
   Header set X-Frame-Options "SAMEORIGIN"
@@ -131,16 +139,21 @@ Create a `.htaccess` file inside `public_html` for compression, caching, and sec
 </IfModule>
 ```
 
+Serve over HTTPS: `PDF Protect` uses `crypto.subtle`, which browsers only expose in secure contexts.
+
+Update `sitemap.xml`, `robots.txt` and the `canonical`/`og:url` tags if you deploy to a domain other than `https://pdfilove.com`.
+
 ---
 
-## 🔒 Security & Privacy Notice
+## Security and privacy
 
-DocuFlow processes supported operations (Merge, Split, Rotate, Watermark, Compress, Page Numbers, Images to PDF, etc.) locally on the client's device using JavaScript and WebAssembly. At no point are your document contents sent to our servers.
+- Documents are read into memory in the browser and never transmitted. There is no backend in this repository.
+- No API keys are needed. `.env.example` documents optional settings only; keep real values in an ignored `.env`.
+- Never put secrets in browser code or `VITE_*` variables - they are shipped to visitors.
+- `.github/workflows/secret-scan.yml` runs Gitleaks on pushes and pull requests. A scan is a safety net, not a guarantee; rotate any credential that was ever committed.
 
-### Keeping credentials private
+---
 
-- Never commit API keys, access tokens, passwords, private keys, or production credentials. Do not put them in source code, pull requests, code review comments, issues, screenshots, or logs.
-- Keep credentials in your hosting provider's secret manager or in a server-side environment variable. A key placed in browser code or a `VITE_*` variable is included in public assets and is not secret; call protected APIs through a server-side endpoint instead.
-- `.env.example` is for names and dummy placeholders only. Store real local values in an ignored `.env` file and do not remove the ignore rules.
-- Pull requests and pushes are checked for likely secrets by the Gitleaks workflow. A scan is a safety net, not a guarantee; review findings and rotate exposed credentials.
-- If a credential was committed, revoke or rotate it immediately. Deleting the file or making the repository private does not remove it from Git history, existing clones, or prior reviews.
+## License
+
+MIT - see [LICENSE](LICENSE).

@@ -3,6 +3,22 @@
  * Structured catalog of all PDF tools across 6 core categories
  */
 
+/**
+ * @typedef {Object} Tool
+ * @property {string} id
+ * @property {string} name
+ * @property {string} category
+ * @property {string} categoryName
+ * @property {string} desc
+ * @property {string|null} [badge]
+ * @property {string} accept
+ * @property {boolean} [multiple]
+ * @property {string} workflow
+ * @property {boolean} isClientReady
+ * @property {string} [serverRequiredNote]
+ * @property {string} icon
+ */
+
 export const CATEGORIES = [
   { id: 'all', name: 'All Tools' },
   { id: 'organize', name: 'Organize PDF' },
@@ -13,6 +29,7 @@ export const CATEGORIES = [
   { id: 'utilities', name: 'Additional Utilities' }
 ];
 
+/** @type {Tool[]} */
 export const TOOLS = [
   /* Category 1: Organize PDF */
   {
@@ -443,6 +460,10 @@ export const TOOLS = [
   }
 ];
 
+/**
+ * @param {string} id
+ * @returns {Tool|undefined}
+ */
 export function getToolById(id) {
   return TOOLS.find(t => t.id === id);
 }
@@ -462,3 +483,4 @@ export function filterTools(query = '', category = 'all') {
     );
   });
 }
+

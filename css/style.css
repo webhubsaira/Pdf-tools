@@ -75,6 +75,12 @@ body {
   flex-direction: column;
 }
 
+/* Set by the tool dialog; the drawer uses the same lock. */
+html.modal-open,
+html.nav-open {
+  overflow: hidden;
+}
+
 a {
   color: inherit;
   text-decoration: none;

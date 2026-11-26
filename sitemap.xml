@@ -1,44 +1,37 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/</loc>
-    <lastmod>2026-10-29</lastmod>
+    <loc>https://pdfilove.com/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/tools.html</loc>
-    <lastmod>2026-10-29</lastmod>
+    <loc>https://pdfilove.com/tools.html</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/about.html</loc>
-    <lastmod>2026-10-29</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.7</priority>
-  </url>
-  <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/security.html</loc>
-    <lastmod>2026-10-29</lastmod>
+    <loc>https://pdfilove.com/security.html</loc>
     <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/privacy.html</loc>
-    <lastmod>2026-10-29</lastmod>
+    <loc>https://pdfilove.com/about.html</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://pdfilove.com/privacy.html</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/terms.html</loc>
-    <lastmod>2026-10-29</lastmod>
+    <loc>https://pdfilove.com/terms.html</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>
   <url>
-    <loc>https://ais-pre-mfwcfkrtwzw4nwu5ukmsh7-318734679348.asia-southeast1.run.app/contact.html</loc>
-    <lastmod>2026-11-11</lastmod>
+    <loc>https://pdfilove.com/contact.html</loc>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
   </url>

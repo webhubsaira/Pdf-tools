@@ -2,22 +2,25 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <script type="importmap">
-      {
-        "imports": {
-          "pdf-lib": "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/+esm",
-          "jszip": "https://cdn.jsdelivr.net/npm/jszip@3.10.2/+esm"
-        }
-      }
-    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>pdfilove - Online PDF Tools Suite</title>
-    <meta name="description" content="Every tool you need to work with PDFs in one place. 100% free and easy to use. Merge, split, compress, convert, rotate, unlock, and watermark PDFs with just a few clicks." />
-    <meta property="og:title" content="pdfilove - Online PDF Tools Suite" />
-    <meta property="og:description" content="Every tool you need to work with PDFs in one place. 100% free and easy to use. Merge, split, compress, convert, rotate, unlock, and watermark PDFs." />
+    <title>pdfilove - Free Online PDF Tools, 100% in Your Browser</title>
+    <meta name="description" content="Every PDF tool in one place: merge, split, compress, rotate, watermark, protect, unlock and convert PDFs. Everything runs locally in your browser, so your files never leave your device." />
+
+    <link rel="canonical" href="https://pdfilove.com/" />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="pdfilove" />
+    <meta property="og:url" content="https://pdfilove.com/" />
+    <meta property="og:title" content="pdfilove - Free Online PDF Tools, 100% in Your Browser" />
+    <meta property="og:description" content="Every PDF tool in one place: merge, split, compress, rotate, watermark, protect, unlock and convert PDFs. Everything runs locally in your browser, so your files never leave your device." />
+    <meta property="og:image" content="https://pdfilove.com/assets/logo-512.png" />
     <meta name="twitter:card" content="summary_large_image" />
-    <link rel="icon" type="image/png" href="/assets/PDFiloveTools%20Brand%20Logo.png" />
+    <meta name="twitter:title" content="pdfilove - Free Online PDF Tools, 100% in Your Browser" />
+    <meta name="twitter:description" content="Every PDF tool in one place: merge, split, compress, rotate, watermark, protect, unlock and convert PDFs. Everything runs locally in your browser, so your files never leave your device." />
+    <meta name="twitter:image" content="https://pdfilove.com/assets/logo-512.png" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-96.png" type="image/png" sizes="96x96" />
+    <link rel="apple-touch-icon" href="/favicon-96.png" />
+
     <!-- Design & Layout Stylesheets -->
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
@@ -29,7 +32,7 @@
       <div class="container header-container">
         <!-- Logo -->
         <a href="/" class="header-logo-link" aria-label="pdfilove Home">
-          <img src="/assets/PDFiloveTools%20Brand%20Logo.png" alt="PDFiloveTools" class="header-logo-img" height="42" />
+          <img src="/assets/logo-512.webp" alt="PDFiloveTools" class="header-logo-img" height="42" />
         </a>
 
         <!-- Desktop Navigation -->
@@ -62,7 +65,7 @@
     <div class="mobile-nav-overlay" id="mobile-nav-drawer" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Mobile Navigation">
       <div class="mobile-nav-drawer">
         <div class="mobile-nav-header">
-          <img src="/assets/PDFiloveTools%20Brand%20Logo.png" alt="PDFiloveTools" height="34" />
+          <img src="/assets/logo-512.webp" alt="PDFiloveTools" height="34" />
           <button type="button" class="mobile-nav-close" aria-label="Close menu">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -357,7 +360,7 @@
 
     <!-- Interactive Tool Studio Modal -->
     <div class="tool-modal-overlay" id="tool-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="tool-modal-title" aria-hidden="true">
-      <div class="tool-modal-dialog">
+      <div class="tool-modal-dialog" role="document" tabindex="-1">
         <div class="tool-modal-header">
           <div class="tool-modal-title-area">
             <div class="tool-modal-icon" id="tool-modal-icon"></div>
@@ -381,7 +384,7 @@
           <!-- Col 1: Brand -->
           <div class="footer-brand">
             <a href="/" aria-label="pdfilove Home">
-              <img src="/assets/PDFiloveTools%20Brand%20Logo.png" alt="PDFiloveTools" class="footer-logo-img" height="38" />
+              <img src="/assets/logo-512.webp" alt="PDFiloveTools" class="footer-logo-img" height="38" />
             </a>
             <p class="footer-brand-desc">
               pdfilove delivers streamlined, privacy-conscious PDF utilities engineered to simplify modern digital document workflows.
@@ -396,12 +399,12 @@
           <div>
             <div class="footer-col-title">Popular Tools</div>
             <ul class="footer-links">
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('merge-pdf'); return false;">Merge PDF</a></li>
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('split-pdf'); return false;">Split PDF</a></li>
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('compress-pdf'); return false;">Compress PDF</a></li>
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('jpg-to-pdf'); return false;">JPG to PDF</a></li>
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('rotate-pdf'); return false;">Rotate PDF</a></li>
-              <li><a href="#" class="footer-link" onclick="window.DocuFlowApp.openToolStudio('watermark-pdf'); return false;">Watermark PDF</a></li>
+              <li><a href="/tools.html?tool=merge-pdf" class="footer-link">Merge PDF</a></li>
+              <li><a href="/tools.html?tool=split-pdf" class="footer-link">Split PDF</a></li>
+              <li><a href="/tools.html?tool=compress-pdf" class="footer-link">Compress PDF</a></li>
+              <li><a href="/tools.html?tool=jpg-to-pdf" class="footer-link">JPG to PDF</a></li>
+              <li><a href="/tools.html?tool=rotate-pdf" class="footer-link">Rotate PDF</a></li>
+              <li><a href="/tools.html?tool=watermark-pdf" class="footer-link">Watermark PDF</a></li>
             </ul>
           </div>
 
