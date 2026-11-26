@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>document.documentElement.classList.add('js-reveal');</script>
     <title>All PDF Tools - pdfilove Directory</title>
     <meta name="description" content="Browse pdfilove's full suite of 30+ PDF tools: merge, split, compress, watermark, rotate, protect, unlock, OCR and convert PDF to Word, Excel, PowerPoint, JPG and more." />
 
@@ -21,6 +22,7 @@
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
     <link rel="stylesheet" href="./css/tools.css" />
+    <link rel="stylesheet" href="./css/motion.css" />
   </head>
   <body>
     <!-- Site Header -->
@@ -86,15 +88,15 @@
             <span class="breadcrumb-current">PDF Tools Directory</span>
           </nav>
 
-          <div class="section-header" style="text-align: left; margin-bottom: 32px;">
+          <header data-reveal class="section-header" style="text-align: left; margin-bottom: 32px;">
             <h1 class="section-title">All PDF Tools</h1>
             <p class="section-desc" style="margin: 0;">
               Browse our complete library of PDF utilities. Every client-ready tool operates with local privacy inside your web browser.
             </p>
-          </div>
+          </header>
 
           <!-- Featured Quick Suites Bar -->
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 36px;">
+          <div data-reveal-group style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-bottom: 36px;">
             <div class="featured-mini-card" style="flex-direction: row; gap: 14px; text-align: left;" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
               <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.28_PM_86a1cbe2.jpeg" alt="Word to PDF" style="margin-bottom: 0; width: 56px; height: 56px;" />
               <div>
@@ -177,7 +179,7 @@
     <!-- Responsive Footer -->
     <footer class="site-footer" role="contentinfo">
       <div class="container">
-        <div class="footer-grid">
+        <div class="footer-grid" data-reveal-group>
           <div class="footer-brand">
             <a href="/" aria-label="pdfilove Home">
               <img src="/assets/logo-512.png" alt="PDFiloveTools" class="footer-logo-img" height="38" />

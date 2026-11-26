@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>document.documentElement.classList.add('js-reveal');</script>
     <title>Contact pdfilove Support</title>
     <meta name="description" content="Contact the pdfilove team with questions, bug reports or feedback about the online PDF tools." />
 
@@ -20,6 +21,7 @@
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
     <link rel="stylesheet" href="./css/tools.css" />
+    <link rel="stylesheet" href="./css/motion.css" />
   </head>
   <body>
     <header class="site-header" role="banner">
@@ -72,12 +74,12 @@
           <span class="breadcrumb-sep">/</span>
           <span class="breadcrumb-current">Contact Us</span>
         </nav>
-        <article style="line-height: 1.7; color: var(--color-text);">
-          <header style="margin-bottom: 32px; border-bottom: 1px solid var(--color-border); padding-bottom: 24px;">
+        <article data-reveal-group style="line-height: 1.7; color: var(--color-text);">
+          <header data-reveal style="margin-bottom: 32px; border-bottom: 1px solid var(--color-border); padding-bottom: 24px;">
             <h1 style="font-size: 2.25rem; font-weight: 800; margin-bottom: 8px;">Contact Us</h1>
             <p style="color: var(--color-text-secondary);">Questions or feedback about pdfilove? We would be glad to hear from you.</p>
           </header>
-          <section style="margin-bottom: 28px;">
+          <section data-reveal style="margin-bottom: 28px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">Get in touch</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               For general questions, feedback, or help with our PDF tools, email us at
@@ -93,7 +95,7 @@
 
     <footer class="site-footer" role="contentinfo">
       <div class="container">
-        <div class="footer-grid">
+        <div class="footer-grid" data-reveal-group>
           <div class="footer-brand">
             <a href="/" aria-label="pdfilove Home">
               <img src="/assets/logo-512.png" alt="PDFiloveTools" class="footer-logo-img" height="36" />

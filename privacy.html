@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>document.documentElement.classList.add('js-reveal');</script>
     <title>Privacy Policy - pdfilove</title>
     <meta name="description" content="pdfilove privacy policy: documents are processed in your browser, never uploaded, and never retained on a server." />
 
@@ -21,6 +22,7 @@
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
     <link rel="stylesheet" href="./css/tools.css" />
+    <link rel="stylesheet" href="./css/motion.css" />
   </head>
   <body>
     <!-- Site Header -->
@@ -82,13 +84,13 @@
           <span class="breadcrumb-current">Privacy Policy</span>
         </nav>
 
-        <article style="line-height: 1.7; color: var(--color-text);">
-          <header style="margin-bottom: 32px; border-bottom: 1px solid var(--color-border); padding-bottom: 24px;">
+        <article data-reveal-group style="line-height: 1.7; color: var(--color-text);">
+          <header data-reveal style="margin-bottom: 32px; border-bottom: 1px solid var(--color-border); padding-bottom: 24px;">
             <h1 style="font-size: 2.25rem; font-weight: 800; margin-bottom: 8px;">Privacy Policy</h1>
             <p style="color: var(--color-text-secondary); font-size: 0.9375rem;">Last revised: October 29, 2026 &bull; Effective Date: October 29, 2026</p>
           </header>
 
-          <section style="margin-bottom: 28px;">
+          <section data-reveal style="margin-bottom: 28px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">1. Our Privacy First Architecture</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               pdfilove ("we", "our", or "the Platform") operates on a privacy-by-design architecture. When you use any client-ready PDF tool on pdfilove (including Merge, Split, Rotate, Compress, Watermark, Page Numbers, Flatten, and Image conversion), <strong>your files are never uploaded to our servers</strong>.
@@ -98,7 +100,7 @@
             </p>
           </section>
 
-          <section style="margin-bottom: 28px;">
+          <section data-reveal style="margin-bottom: 28px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">2. File Data & Temporary Memory</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               Documents selected via drag-and-drop or file pickers are read into browser memory via HTML5 FileReader APIs as temporary ArrayBuffers.
@@ -110,14 +112,14 @@
             </ul>
           </section>
 
-          <section style="margin-bottom: 28px;">
+          <section data-reveal style="margin-bottom: 28px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">3. Information Collected</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               The Platform does not require user accounts, passwords, or credit cards to use standard tools. When you send an inquiry via our Contact form, we collect only the name, email address, and message details you voluntarily provide solely to respond to your request.
             </p>
           </section>
 
-          <section style="margin-bottom: 28px;">
+          <section data-reveal style="margin-bottom: 28px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">4. Cookies & Local Storage</h2>
             <p style="color: var(--color-text-secondary);">
               pdfilove does not deploy persistent third-party tracking cookies. Minimal functional state (such as active category tabs or accessibility preferences) may be kept in your browser's local memory to enhance your direct session.
@@ -131,7 +133,7 @@
     <!-- Responsive Footer -->
     <footer class="site-footer" role="contentinfo">
       <div class="container">
-        <div class="footer-grid">
+        <div class="footer-grid" data-reveal-group>
           <div class="footer-brand">
             <a href="/"><img src="/assets/logo-512.png" alt="PDFiloveTools" class="footer-logo-img" height="36" /></a>
             <p class="footer-brand-desc">Fast, privacy-focused online PDF tools engineered for productivity and ease of use.</p>

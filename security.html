@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>document.documentElement.classList.add('js-reveal');</script>
     <title>Security & Privacy Architecture - pdfilove</title>
     <meta name="description" content="How pdfilove keeps documents private: client-side sandboxing, no uploads, no storage, and no third-party document processing." />
 
@@ -21,6 +22,7 @@
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
     <link rel="stylesheet" href="./css/tools.css" />
+    <link rel="stylesheet" href="./css/motion.css" />
   </head>
   <body>
     <!-- Site Header -->
@@ -82,8 +84,8 @@
           <span class="breadcrumb-current">Security Whitepaper</span>
         </nav>
 
-        <article style="line-height: 1.7; color: var(--color-text);">
-          <header style="margin-bottom: 36px;">
+        <article data-reveal-group style="line-height: 1.7; color: var(--color-text);">
+          <header data-reveal style="margin-bottom: 36px;">
             <div class="hero-badge" style="margin-bottom: 14px;">Technical Security</div>
             <h1 style="font-size: clamp(2rem, 3.5vw, 2.75rem); font-weight: 800; line-height: 1.2; margin-bottom: 16px;">
               pdfilove Security Architecture
@@ -122,7 +124,7 @@
             </div>
           </div>
 
-          <section style="margin-bottom: 32px;">
+          <section data-reveal style="margin-bottom: 32px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">1. Client-Side Memory Isolation</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               pdfilove's client-ready tools utilize the browser's native JavaScript sandbox. When you drag and drop files into the interface, the browser's <code>FileReader</code> API reads the binary data into an isolated <code>ArrayBuffer</code> in active RAM.
@@ -132,7 +134,7 @@
             </p>
           </section>
 
-          <section style="margin-bottom: 32px;">
+          <section data-reveal style="margin-bottom: 32px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">2. Ephemeral Blob Object URLs</h2>
             <p style="color: var(--color-text-secondary); margin-bottom: 12px;">
               When pdfilove finishes processing a document (such as merging pages or stamping a watermark), the output <code>Uint8Array</code> is packaged as a local binary <code>Blob</code>.
@@ -142,14 +144,14 @@
             </p>
           </section>
 
-          <section style="margin-bottom: 32px;">
+          <section data-reveal style="margin-bottom: 32px;">
             <h2 style="font-size: 1.35rem; font-weight: 700; margin-bottom: 12px;">3. Cryptographic Hygiene & Password Protection</h2>
             <p style="color: var(--color-text-secondary);">
               For tools that support password encryption or protection, user-entered passphrases are used directly to configure the document's security handler and are never transmitted or logged.
             </p>
           </section>
 
-          <section style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 24px; margin-top: 36px;">
+          <section data-reveal style="background-color: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 24px; margin-top: 36px;">
             <h3 style="font-size: 1.125rem; font-weight: 700; margin-bottom: 8px;">Security Disclosure</h3>
             <p style="font-size: 0.9375rem; color: var(--color-text-secondary); line-height: 1.6;">
               This site does not currently provide a dedicated security disclosure or inquiry channel. Do not include sensitive vulnerability details in PDF uploads or other site features.
@@ -162,7 +164,7 @@
     <!-- Responsive Footer -->
     <footer class="site-footer" role="contentinfo">
       <div class="container">
-        <div class="footer-grid">
+        <div class="footer-grid" data-reveal-group>
           <div class="footer-brand">
             <a href="/"><img src="/assets/logo-512.png" alt="PDFiloveTools" class="footer-logo-img" height="36" /></a>
             <p class="footer-brand-desc">Fast, privacy-focused online PDF tools engineered for productivity and ease of use.</p>

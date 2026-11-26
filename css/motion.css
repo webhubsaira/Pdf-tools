@@ -1,0 +1,701 @@
+/**
+ * pdfilove - Motion layer
+ *
+ * Scroll-reveal, staggered entrances, hover micro-interactions and ambient effects.
+ *
+ * Rules of engagement:
+ *  - Everything here is opt-in via a class or [data-reveal], so pages degrade to a
+ *    plain static layout if JavaScript never runs.
+ *  - Cards that lift themselves on hover (tool, feature and step cards) get their
+ *    entrance from the independent `translate`/`scale` properties, so the reveal and
+ *    the hover `transform` compose instead of overwriting each other.
+ *  - `prefers-reduced-motion: reduce` disables all of it and shows content immediately.
+ */
+
+:root {
+  --motion-fast: 180ms;
+  --motion-normal: 420ms;
+  --motion-slow: 700ms;
+  --motion-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --motion-stagger: 70ms;
+}
+
+/* ------------------------------------------------------------------ *
+ * 1. Scroll reveal
+ *
+ * The hiding rules are scoped to `.js-reveal`, a class an inline head script puts
+ * on <html>. Without JavaScript (or if the bundle fails) nothing is ever hidden,
+ * so content can never be stranded at opacity 0.
+ * ------------------------------------------------------------------ */
+
+.js-reveal [data-reveal] {
+  opacity: 0;
+  /* Use the independent translate/scale properties, not `transform`, so a card's
+     hover lift (which uses transform) composes with the entrance instead of being
+     overridden by it. */
+  translate: 0 22px;
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+.js-reveal [data-reveal='left'] {
+  translate: -28px 0;
+}
+
+.js-reveal [data-reveal='right'] {
+  translate: 28px 0;
+}
+
+.js-reveal [data-reveal='scale'] {
+  translate: 0 14px;
+  scale: 0.96;
+}
+
+.js-reveal [data-reveal='fade'] {
+  translate: none;
+}
+
+.js-reveal [data-reveal].is-visible {
+  opacity: 1;
+  translate: none;
+  scale: none;
+}
+
+/* Staggered children: the delay is set inline by scroll-reveal.js. */
+.js-reveal [data-reveal-group] > * {
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* ------------------------------------------------------------------ *
+ * 2. Hero entrance (plays on load, not on scroll)
+ * ------------------------------------------------------------------ */
+
+@keyframes motion-rise {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 18px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes motion-badge-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.9) translate3d(0, 8px, 0);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translate3d(0, 0, 0);
+  }
+}
+
+/* Hero copy is already above the fold, so it animates immediately via CSS only. */
+.hero-section .hero-badge {
+  animation: motion-badge-pop 560ms var(--motion-ease-out) both;
+}
+
+.hero-section .hero-heading {
+  animation: motion-rise 640ms var(--motion-ease-out) 90ms both;
+}
+
+.hero-section .hero-subtitle {
+  animation: motion-rise 640ms var(--motion-ease-out) 190ms both;
+}
+
+.hero-section .hero-actions {
+  animation: motion-rise 640ms var(--motion-ease-out) 290ms both;
+}
+
+.hero-section .hero-trust-list {
+  animation: motion-rise 640ms var(--motion-ease-out) 380ms both;
+}
+
+/* Soft coral glow that breathes behind the hero headline. */
+.hero-section::before {
+  content: '';
+  position: absolute;
+  top: -180px;
+  left: 50%;
+  width: min(760px, 90vw);
+  height: 420px;
+  transform: translateX(-50%);
+  background: radial-gradient(circle, rgba(232, 76, 79, 0.16) 0%, rgba(232, 76, 79, 0) 70%);
+  pointer-events: none;
+  animation: motion-breathe 9s ease-in-out infinite;
+  z-index: 0;
+}
+
+.hero-section .container {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes motion-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: translateX(-50%) scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.08);
+  }
+}
+
+/* Animated underline on the coral "PDFs" span. */
+.hero-heading span {
+  position: relative;
+  display: inline-block;
+}
+
+.hero-heading span::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.02em;
+  height: 0.09em;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0.22;
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: motion-underline 720ms var(--motion-ease-out) 620ms both;
+}
+
+@keyframes motion-underline {
+  to {
+    transform: scaleX(1);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * 3. Section headings
+ * ------------------------------------------------------------------ */
+
+.section-header .section-title {
+  position: relative;
+}
+
+/* Animated rule that grows under the section title once revealed. */
+.js-reveal [data-reveal] .section-title::after,
+.section-header.is-visible .section-title::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 3px;
+  margin: 14px auto 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-primary), #f59e8b);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 620ms var(--motion-ease-out) 180ms;
+}
+
+.js-reveal [data-reveal].is-visible .section-title::after,
+.section-header.is-visible .section-title::after {
+  transform: scaleX(1);
+}
+
+/* The legal pages put the title inside a plain <header>, not a .section-header. */
+main article > header[data-reveal] > h1::after {
+  content: '';
+  display: block;
+  width: 56px;
+  height: 3px;
+  margin: 16px 0 0;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--color-primary), #f59e8b);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 620ms var(--motion-ease-out) 160ms;
+}
+
+main article > header[data-reveal].is-visible > h1::after {
+  transform: scaleX(1);
+}
+
+/* Left-aligned headers (tools directory) keep the rule on the left. */
+.section-header[style*='text-align: left'] .section-title::after {
+  margin-left: 0;
+  transform-origin: left center;
+}
+
+/* ------------------------------------------------------------------ *
+ * 4. Cards and grids
+ * ------------------------------------------------------------------ */
+
+/* Tool cards already translate on hover; add depth that does not fight it. */
+.tool-card {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease),
+    transform var(--motion-normal) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out),
+    border-color var(--motion-normal) var(--motion-ease);
+  /* Entrance delay comes from --reveal-delay; hover states must not be delayed. */
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms, 0ms;
+}
+
+.tool-card:hover .tool-icon-wrap {
+  transform: scale(1.12) rotate(-4deg);
+  transition: transform 320ms var(--motion-ease-spring);
+}
+
+.tool-card:active {
+  transform: translateY(-1px) scale(0.995);
+}
+
+/* Featured banners: slow ken-burns zoom on the artwork, lifted card on hover. */
+.featured-banner-card {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease),
+    transform var(--motion-normal) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms;
+}
+
+.featured-banner-card img {
+  transition: transform 900ms var(--motion-ease-out), filter 400ms ease;
+}
+
+.featured-banner-card:hover img {
+  transform: scale(1.045);
+}
+
+.featured-mini-card {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease),
+    transform var(--motion-normal) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out),
+    border-color var(--motion-normal) var(--motion-ease);
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms, 0ms;
+}
+
+.featured-mini-card img {
+  transition: transform 520ms var(--motion-ease-spring);
+}
+
+.featured-mini-card:hover img {
+  transform: translateY(-3px) scale(1.04);
+}
+
+/* Step cards: number watermark fades up, icon lifts. */
+.step-card {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease),
+    transform var(--motion-normal) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out),
+    border-color var(--motion-normal) var(--motion-ease);
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms, 0ms;
+}
+
+.step-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--color-primary-subtle);
+  box-shadow: var(--shadow-md);
+}
+
+.step-icon {
+  transition: transform 420ms var(--motion-ease-spring), background-color var(--motion-fast) ease;
+}
+
+.step-card:hover .step-icon {
+  transform: translateY(-3px) scale(1.06);
+  background-color: var(--color-primary-subtle);
+}
+
+.step-number {
+  transition: color var(--motion-normal) ease, transform var(--motion-normal) var(--motion-ease-out);
+}
+
+.step-card:hover .step-number {
+  color: var(--color-primary-subtle);
+  transform: translateY(-2px);
+}
+
+/* Privacy feature rows tick in with a nudged icon. */
+.privacy-feature-item {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    transform var(--motion-fast) ease;
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms;
+}
+
+.privacy-feature-item:hover {
+  transform: translateX(4px);
+}
+
+.privacy-feature-icon {
+  transition: transform 320ms var(--motion-ease-spring), color var(--motion-fast) ease;
+}
+
+.privacy-feature-item:hover .privacy-feature-icon {
+  transform: scale(1.16);
+}
+
+.privacy-visual {
+  transition:
+    opacity var(--motion-normal) var(--motion-ease),
+    translate var(--motion-normal) var(--motion-ease),
+    scale var(--motion-normal) var(--motion-ease),
+    transform var(--motion-slow) var(--motion-ease-out),
+    box-shadow var(--motion-slow) var(--motion-ease-out);
+  transition-delay: var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), var(--reveal-delay, 0ms), 0ms, 0ms;
+}
+
+.privacy-visual:hover {
+  transform: rotate(-1.2deg) scale(1.02);
+  box-shadow: var(--shadow-lg);
+}
+
+/* CTA section: floating gradient orbs + button sheen. */
+.cta-section {
+  position: relative;
+  overflow: hidden;
+}
+
+.cta-section::before,
+.cta-section::after {
+  content: '';
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(4px);
+}
+
+.cta-section::before {
+  width: 380px;
+  height: 380px;
+  top: -160px;
+  right: -90px;
+  background: radial-gradient(circle, rgba(232, 76, 79, 0.38) 0%, rgba(232, 76, 79, 0) 68%);
+  animation: motion-float 13s ease-in-out infinite;
+}
+
+.cta-section::after {
+  width: 320px;
+  height: 320px;
+  bottom: -170px;
+  left: -80px;
+  background: radial-gradient(circle, rgba(120, 160, 255, 0.22) 0%, rgba(120, 160, 255, 0) 68%);
+  animation: motion-float 16s ease-in-out infinite reverse;
+}
+
+.cta-section .container {
+  position: relative;
+  z-index: 1;
+}
+
+@keyframes motion-float {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-18px, 22px, 0) scale(1.06);
+  }
+}
+
+/* Buttons: subtle lift plus a sheen that sweeps across on hover. */
+.btn {
+  position: relative;
+  overflow: hidden;
+  transform: translateZ(0);
+}
+
+.btn-primary,
+.btn-secondary {
+  transition:
+    transform var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-normal) var(--motion-ease-out),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.btn:hover {
+  transform: translateY(-2px);
+}
+
+.btn:active {
+  transform: translateY(0) scale(0.985);
+}
+
+.btn::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.38), transparent);
+  transform: skewX(-18deg);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.btn-primary:hover::after {
+  animation: motion-sheen 620ms var(--motion-ease);
+}
+
+@keyframes motion-sheen {
+  0% {
+    left: -60%;
+    opacity: 0.9;
+  }
+  100% {
+    left: 120%;
+    opacity: 0;
+  }
+}
+
+/* Footer: columns and links fade in as the page settles. */
+.footer-grid > * {
+  transition: transform var(--motion-fast) ease;
+}
+
+.footer-link {
+  display: inline-block;
+  transition: color var(--motion-fast) ease, transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.footer-link:hover {
+  transform: translateX(3px);
+}
+
+/* ------------------------------------------------------------------ *
+ * 5. Header + navigation micro-interactions
+ * ------------------------------------------------------------------ */
+
+.site-header {
+  transition: box-shadow var(--motion-normal) var(--motion-ease), background-color var(--motion-normal) ease;
+}
+
+.site-header .header-logo-img {
+  transition: transform 420ms var(--motion-ease-spring);
+}
+
+.header-logo-link:hover .header-logo-img {
+  transform: rotate(-3deg) scale(1.04);
+}
+
+.nav-link {
+  position: relative;
+}
+
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 260ms var(--motion-ease-out);
+}
+
+.nav-link:hover::after {
+  transform: scaleX(1);
+}
+
+.nav-link.active::after {
+  transform: scaleX(1);
+}
+
+/* Mobile drawer: slide + fade of the links themselves. */
+.mobile-nav-drawer {
+  transition: transform 320ms var(--motion-ease-out);
+}
+
+.mobile-nav-overlay.open .mobile-nav-link {
+  animation: motion-rise 380ms var(--motion-ease-out) both;
+}
+
+.mobile-nav-overlay.open .mobile-nav-link:nth-child(1) { animation-delay: 60ms; }
+.mobile-nav-overlay.open .mobile-nav-link:nth-child(2) { animation-delay: 110ms; }
+.mobile-nav-overlay.open .mobile-nav-link:nth-child(3) { animation-delay: 160ms; }
+.mobile-nav-overlay.open .mobile-nav-link:nth-child(4) { animation-delay: 210ms; }
+.mobile-nav-overlay.open .mobile-nav-link:nth-child(5) { animation-delay: 260ms; }
+
+/* ------------------------------------------------------------------ *
+ * 6. Tool dialog
+ * ------------------------------------------------------------------ */
+
+@keyframes motion-dialog-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.tool-modal-overlay.open .tool-modal-dialog {
+  animation: motion-dialog-in 300ms var(--motion-ease-out) both;
+}
+
+.tool-modal-overlay.open .tool-modal-header {
+  animation: motion-rise 340ms var(--motion-ease-out) 40ms both;
+}
+
+.tool-modal-overlay.open .upload-zone,
+.tool-modal-overlay.open .tool-settings-card,
+.tool-modal-overlay.open .file-queue {
+  animation: motion-rise 380ms var(--motion-ease-out) 90ms both;
+}
+
+.success-box.visible .success-icon-wrap {
+  animation: motion-badge-pop 460ms var(--motion-ease-spring) both;
+}
+
+.progress-bar-fill {
+  transition: width 320ms var(--motion-ease), background-color var(--motion-fast) ease;
+}
+
+/* Category filter pills pop when chosen. */
+.filter-btn {
+  transition:
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    transform var(--motion-fast) var(--motion-ease-out);
+}
+
+.filter-btn:active {
+  transform: scale(0.97);
+}
+
+.filter-btn.active {
+  animation: motion-badge-pop 300ms var(--motion-ease-out) both;
+}
+
+/* ------------------------------------------------------------------ *
+ * 7. Long-form pages (about / security / privacy / terms / contact)
+ * ------------------------------------------------------------------ */
+
+/* Cards written with inline styles have no class, so target them structurally. */
+main > .container > article > section > div[style*='border-radius'] {
+  transition: transform var(--motion-normal) var(--motion-ease-out), box-shadow var(--motion-normal) var(--motion-ease-out);
+}
+
+main > .container > article > section > div[style*='border-radius']:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+main article h2 {
+  transition: color var(--motion-fast) ease;
+}
+
+.breadcrumb a {
+  position: relative;
+  transition: color var(--motion-fast) ease;
+}
+
+/* Content links get an animated underline instead of a colour-only cue. */
+main article a:not(.btn) {
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0 1.5px;
+  transition: background-size 260ms var(--motion-ease-out), color var(--motion-fast) ease;
+}
+
+main article a:not(.btn):hover {
+  background-size: 100% 1.5px;
+}
+
+/* Tools directory: the quick-suite cards stagger in on load. */
+/* Load-time stagger. `backwards` (not `both`) so the finished animation stops
+   holding a transform that would shadow the card's hover lift. */
+.tools-section .featured-mini-card {
+  animation: motion-rise 520ms var(--motion-ease-out) backwards;
+}
+
+.tools-section .featured-mini-card:nth-child(1) { animation-delay: 40ms; }
+.tools-section .featured-mini-card:nth-child(2) { animation-delay: 100ms; }
+.tools-section .featured-mini-card:nth-child(3) { animation-delay: 160ms; }
+
+/* ------------------------------------------------------------------ *
+ * 8. Respect the user's motion preference
+ * ------------------------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal],
+  .js-reveal [data-reveal].is-visible {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .hero-section::before,
+  .hero-section .hero-badge,
+  .hero-section .hero-heading,
+  .hero-section .hero-subtitle,
+  .hero-section .hero-actions,
+  .hero-section .hero-trust-list,
+  .hero-heading span::after,
+  .cta-section::before,
+  .cta-section::after,
+  .mobile-nav-overlay.open .mobile-nav-link,
+  .tool-modal-overlay.open .tool-modal-dialog,
+  .tool-modal-overlay.open .tool-modal-header,
+  .tool-modal-overlay.open .upload-zone,
+  .tool-modal-overlay.open .tool-settings-card,
+  .tool-modal-overlay.open .file-queue,
+  .success-box.visible .success-icon-wrap,
+  .filter-btn.active,
+  .tools-section .featured-mini-card {
+    animation: none !important;
+  }
+
+  .btn:hover,
+  .btn:active,
+  .step-card:hover,
+  .featured-banner-card:hover,
+  .featured-mini-card:hover,
+  .tool-card:active,
+  .tool-card:hover .tool-icon-wrap,
+  .step-card:hover .step-icon,
+  .step-card:hover .step-number,
+  .featured-banner-card:hover img,
+  .featured-mini-card:hover img,
+  .privacy-visual:hover,
+  .privacy-feature-item:hover,
+  .privacy-feature-item:hover .privacy-feature-icon,
+  .footer-link:hover,
+  .header-logo-link:hover .header-logo-img {
+    transform: none !important;
+  }
+
+  .btn::after,
+  .hero-heading span::after,
+  .js-reveal [data-reveal] .section-title::after,
+  .section-header.is-visible .section-title::after,
+  main article > header[data-reveal] > h1::after {
+    display: none !important;
+    transform: none !important;
+  }
+}

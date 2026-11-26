@@ -1,9 +1,10 @@
 /**
- * DocuFlow - Main Application Controller
+ * pdfilove - Main Application Controller
  * Dynamic tool cards rendering, search & category filtering, and interactive Tool Studio modal
  */
 
 import { initNavigation } from './navigation.js';
+import { initScrollReveal } from './scroll-reveal.js';
 import { TOOLS, CATEGORIES, filterTools, getToolById } from './tools.js';
 import { formatBytes, validateFile, triggerDownload, cleanupObjectURLs } from './file-handler.js';
 /**
@@ -67,6 +68,7 @@ const state = {
 
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
+  initScrollReveal();
   initToolsGrid();
   initSearchAndFilters();
   initToolModal();
@@ -103,7 +105,7 @@ function renderTools() {
   if (emptyState) emptyState.classList.remove('visible');
 
   const renderToolCard = (tool, isDuplicate = false) => `
-      <article class="tool-card" data-id="${tool.id}" data-cat="${tool.category}" role="button" tabindex="${isDuplicate ? '-1' : '0'}" aria-label="Open ${tool.name}"${isDuplicate ? ' aria-hidden="true"' : ''}>
+      <article class="tool-card" data-reveal="scale" data-id="${tool.id}" data-cat="${tool.category}" role="button" tabindex="${isDuplicate ? '-1' : '0'}" aria-label="Open ${tool.name}"${isDuplicate ? ' aria-hidden="true"' : ''}>
         ${tool.badge ? `<span class="tool-badge badge-${tool.badge.toLowerCase()}">${tool.badge}</span>` : ''}
         <div class="tool-icon-wrap" aria-hidden="true">
           ${tool.icon}
@@ -143,6 +145,18 @@ function renderTools() {
     `).join('');
   } else {
     gridContainer.innerHTML = filtered.map(tool => renderToolCard(tool)).join('');
+  }
+
+  // Cards are injected after boot, so ask the reveal observer to pick them up.
+  // On the home page the marquee tracks are transformed, which would make
+  // getBoundingClientRect unreliable, so those cards are shown immediately instead.
+  if (useHomeMarquee) {
+    gridContainer.querySelectorAll('[data-reveal]').forEach(card => card.classList.add('is-visible'));
+  } else {
+    gridContainer.querySelectorAll('[data-reveal]').forEach((card, index) => {
+      /** @type {HTMLElement} */ (card).style.setProperty('--reveal-delay', `${Math.min(index, 8) * 40}ms`);
+    });
+    document.dispatchEvent(new CustomEvent('pdfilove:reveal'));
   }
 
   // Attach click & enter key handlers to cards

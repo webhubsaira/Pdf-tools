@@ -1,5 +1,5 @@
 /**
- * DocuFlow - Navigation & UI Controls
+ * pdfilove - Navigation & UI Controls
  * Handles mobile hamburger drawer, keyboard navigation, header elevation, and year sync
  */
 
