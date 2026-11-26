@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>document.documentElement.classList.add('js-reveal');</script>
     <title>pdfilove - Free Online PDF Tools, 100% in Your Browser</title>
     <meta name="description" content="Every PDF tool in one place: merge, split, compress, rotate, watermark, protect, unlock and convert PDFs. Everything runs locally in your browser, so your files never leave your device." />
 
@@ -25,6 +26,7 @@
     <link rel="stylesheet" href="./css/style.css" />
     <link rel="stylesheet" href="./css/responsive.css" />
     <link rel="stylesheet" href="./css/tools.css" />
+    <link rel="stylesheet" href="./css/motion.css" />
   </head>
   <body>
     <!-- Site Header -->
@@ -133,9 +135,9 @@
       <!-- Featured Image Banners & Quick Suites Showcase -->
       <section class="featured-banners-section" aria-label="Featured PDF Converters">
         <div class="container">
-          <div class="featured-banners-grid">
+          <div class="featured-banners-grid" data-reveal-group>
             <!-- Left: Main Feature Banner -->
-            <div class="featured-banner-card" onclick="window.DocuFlowApp.openToolStudio('jpg-to-pdf')" title="Click to Convert PDF to Any Format">
+            <div class="featured-banner-card" data-reveal="scale" onclick="window.DocuFlowApp.openToolStudio('jpg-to-pdf')" title="Click to Convert PDF to Any Format">
               <img 
                 src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.30_PM_60c87cec.jpeg" 
                 alt="Convert PDF to Any Format - Word, Excel, PowerPoint, Image, Text, HTML" 
@@ -145,25 +147,25 @@
 
             <!-- Right: Mini Feature Converter Suites -->
             <div class="featured-mini-cards">
-              <div class="featured-mini-card" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
+              <div class="featured-mini-card" data-reveal="right" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
                 <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.28_PM_86a1cbe2.jpeg" alt="Word to PDF Converter" />
                 <h4>Word to PDF</h4>
                 <p>Convert DOCX to high fidelity PDF</p>
               </div>
 
-              <div class="featured-mini-card" onclick="window.DocuFlowApp.openToolStudio('pdf-to-text')">
+              <div class="featured-mini-card" data-reveal="right" onclick="window.DocuFlowApp.openToolStudio('pdf-to-text')">
                 <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.33_PM_b2c37f53.jpeg" alt="OCR PDF Converter" />
                 <h4>PDF OCR Converter</h4>
                 <p>Extract text from scanned documents</p>
               </div>
 
-              <div class="featured-mini-card" onclick="window.DocuFlowApp.openToolStudio('pdf-to-word')">
+              <div class="featured-mini-card" data-reveal="right" onclick="window.DocuFlowApp.openToolStudio('pdf-to-word')">
                 <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.32_PM_0fa9fe2f.jpeg" alt="PDF Converter Pro" />
                 <h4>PDF Converter Pro</h4>
                 <p>Multi-tab office document export</p>
               </div>
 
-              <div class="featured-mini-card" onclick="window.DocuFlowApp.openToolStudio('compress-pdf')">
+              <div class="featured-mini-card" data-reveal="right" onclick="window.DocuFlowApp.openToolStudio('compress-pdf')">
                 <img src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.32_PM__1__e7371580.jpeg" alt="Free PDF Converter" />
                 <h4>100% Free Tools</h4>
                 <p>Zero cost, instant browser conversion</p>
@@ -176,7 +178,7 @@
       <!-- PDF Tools Directory Section -->
       <section class="tools-section home-tools-directory" id="tools-directory" aria-labelledby="tools-directory-title">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header" data-reveal>
             <h2 id="tools-directory-title" class="section-title">All the PDF Tools You Need</h2>
             <p class="section-desc">
               Choose a tool, upload your file, and complete your document task in a few simple steps.
@@ -220,21 +222,21 @@
       </section>
 
       <!-- How to Convert PDF Guides Showcase -->
-      <section style="padding: 60px 0; background-color: #FFFFFF; border-top: 1px solid var(--color-border);">
+      <section class="conversion-guides-section" style="padding: 60px 0; background-color: #FFFFFF; border-top: 1px solid var(--color-border);">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header" data-reveal>
             <h2 class="section-title">Step-by-Step Document Conversions</h2>
             <p class="section-desc">Fast, intuitive conversion workflows designed for students, educators, and enterprise teams.</p>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-top: 32px;">
-            <div class="featured-banner-card" onclick="window.DocuFlowApp.openToolStudio('pdf-to-word')">
+          <div class="conversion-guides-grid" data-reveal-group style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-top: 32px;">
+            <div class="featured-banner-card" data-reveal="left" onclick="window.DocuFlowApp.openToolStudio('pdf-to-word')">
               <img 
                 src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.29_PM_20b6a4b4.jpeg" 
                 alt="How to Convert PDF to Word in iLovePDF" 
                 style="width: 100%; height: auto; display: block;"
               />
             </div>
-            <div class="featured-banner-card" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
+            <div class="featured-banner-card" data-reveal="right" onclick="window.DocuFlowApp.openToolStudio('word-to-pdf')">
               <img 
                 src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.30_PM__1__54b16a33.jpeg" 
                 alt="Convert PDF to Word for Free" 
@@ -248,13 +250,13 @@
       <!-- How It Works Section -->
       <section class="how-it-works-section" aria-labelledby="how-it-works-title">
         <div class="container">
-          <div class="section-header">
+          <div class="section-header" data-reveal>
             <h2 id="how-it-works-title" class="section-title">Your Documents, Simplified</h2>
             <p class="section-desc">Transforming, converting, and securing documents takes just three straightforward steps.</p>
           </div>
 
-          <div class="steps-grid">
-            <article class="step-card">
+          <div class="steps-grid" data-reveal-group>
+            <article class="step-card" data-reveal>
               <div class="step-number">01</div>
               <div class="step-icon">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="8" height="8" x="3" y="3" rx="2"/><rect width="8" height="8" x="13" y="13" rx="2"/></svg>
@@ -263,7 +265,7 @@
               <p class="step-desc">Pick from over 20+ specialized PDF utilities for merging, compression, extraction, page numbering, or rotating.</p>
             </article>
 
-            <article class="step-card">
+            <article class="step-card" data-reveal>
               <div class="step-number">02</div>
               <div class="step-icon">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
@@ -272,7 +274,7 @@
               <p class="step-desc">Drag and drop documents directly into your browser window. Files stay on your device for client-side processing.</p>
             </article>
 
-            <article class="step-card">
+            <article class="step-card" data-reveal>
               <div class="step-number">03</div>
               <div class="step-icon">
                 <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -287,15 +289,15 @@
       <!-- Privacy & Security Spotlight Section -->
       <section class="privacy-section" aria-labelledby="privacy-spotlight-title">
         <div class="container">
-          <div class="privacy-banner">
+          <div class="privacy-banner" data-reveal="scale">
             <div class="privacy-content">
               <h3 id="privacy-spotlight-title">Your Documents Deserve Care</h3>
               <p>
                 Unlike traditional PDF converters that upload your confidential files to remote servers, pdfilove processes supported operations directly inside your browser using modern WebAssembly and JavaScript.
               </p>
 
-              <div class="privacy-features">
-                <div class="privacy-feature-item">
+              <div class="privacy-features" data-reveal-group>
+                <div class="privacy-feature-item" data-reveal="left">
                   <svg class="privacy-feature-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                   <div class="privacy-feature-text">
                     <strong>Local Client-Side Processing</strong>
@@ -303,7 +305,7 @@
                   </div>
                 </div>
 
-                <div class="privacy-feature-item">
+                <div class="privacy-feature-item" data-reveal="left">
                   <svg class="privacy-feature-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                   <div class="privacy-feature-text">
                     <strong>Zero Data Retention</strong>
@@ -311,7 +313,7 @@
                   </div>
                 </div>
 
-                <div class="privacy-feature-item">
+                <div class="privacy-feature-item" data-reveal="left">
                   <svg class="privacy-feature-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
                   <div class="privacy-feature-text">
                     <strong>Transparent Operations</strong>
@@ -326,7 +328,7 @@
               </div>
             </div>
 
-            <div class="privacy-visual">
+            <div class="privacy-visual" data-reveal="right">
               <img 
                 src="/assets/aistudio/WhatsApp_Image_2026-10-28_at_12.11.31_PM_39971c2a.jpeg" 
                 alt="pdfilove Document Security & Converter Pro" 
@@ -340,7 +342,7 @@
       <!-- Conversion-Focused CTA Section -->
       <section class="cta-section" aria-labelledby="cta-title">
         <div class="container">
-          <div class="cta-content">
+          <div class="cta-content" data-reveal>
             <h2 id="cta-title" class="cta-title">Make Your Next PDF Task Simpler</h2>
             <p class="cta-desc">
               Find the right document tool and get your files ready for what comes next. Fast, private, and always available.
@@ -380,7 +382,7 @@
     <!-- Responsive Footer -->
     <footer class="site-footer" role="contentinfo">
       <div class="container">
-        <div class="footer-grid">
+        <div class="footer-grid" data-reveal-group>
           <!-- Col 1: Brand -->
           <div class="footer-brand">
             <a href="/" aria-label="pdfilove Home">
