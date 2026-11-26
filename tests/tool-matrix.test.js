@@ -20,9 +20,6 @@ import { TOOLS } from '../js/tools.js';
 
 // The engine resolves its worker through Vite's `?url` import, which has no meaning
 // in Node. Point it at the real worker file so pdf.js can spin up its fake worker.
-vi.mock('pdfjs-dist/build/pdf.worker.min.mjs?url', () => ({
-  default: pathToFileURL(resolve(import.meta.dirname, '../node_modules/pdfjs-dist/build/pdf.worker.min.mjs')).href
-}));
 import { loadResult, makeFile, makePdf } from './setup.js';
 
 const PASSWORD = 'a-strong-password';
@@ -362,6 +359,17 @@ describe('every tool produces the right artifact', () => {
             expect(zip.file(entry)).toBeTruthy();
             const files = Object.keys(zip.files);
             expect(files.some((name) => /slide\d+\.xml$|worksheet/.test(name))).toBe(true);
+            // Real-format checks live in office-roundtrip.test.js (opened with Office
+            // parsers); here we still assert the parts a reader needs are all present.
+            for (const required of ['_rels/.rels', '[Content_Types].xml']) {
+              expect(zip.file(required)).toBeTruthy();
+            }
+            if (format === 'xlsx') {
+              expect(zip.file('xl/styles.xml')).toBeTruthy();
+              expect(await zip.file('xl/workbook.xml').async('text')).toContain('<sheet name=');
+            } else {
+              expect(files.filter((name) => /^ppt\/slides\/slide\d+\.xml$/.test(name))).toHaveLength(2);
+            }
           }
         };
       };

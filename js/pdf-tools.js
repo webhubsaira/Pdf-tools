@@ -5,6 +5,7 @@
 
 import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import JSZip from 'jszip';
+import './runtime-compat.js';
 import { readFileAsArrayBuffer, readFileAsDataURL } from './file-handler.js';
 
 const ENCRYPTED_PDF_ERROR = 'This PDF is password-protected. Use the Unlock PDF tool first, then try again.';
@@ -84,12 +85,34 @@ function assertRasterPageBudget(pageCount, toolName) {
   }
 }
 
+/**
+ * Point pdf.js at a worker that carries the runtime shims.
+ *
+ * pdf.js 6 calls APIs that older browsers and Node do not have (`Promise.try`,
+ * `Uint8Array#toHex/toBase64`, `Uint8Array.fromBase64/fromHex`). The shims live in
+ * runtime-compat.js and must exist inside the worker's own realm too, so the engine uses
+ * js/pdf-worker.js (shims + real worker) instead of the stock worker bundle.
+ *
+ * `?worker&url` makes Vite emit that file as one self-contained worker script and hand
+ * back its URL, which pdf.js then boots exactly like its own worker. Where Web Workers
+ * are unavailable (Node tests, very old engines), the same module is imported on the
+ * main thread: it publishes `globalThis.pdfjsWorker`, and pdf.js runs it there.
+ */
+let pdfjsReady = false;
+
 async function loadPdfJs() {
-  const [pdfjsLib, workerModule] = await Promise.all([
-    import('pdfjs-dist'),
-    import('pdfjs-dist/build/pdf.worker.min.mjs?url')
-  ]);
-  pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+  const pdfjsLib = await import('pdfjs-dist');
+  if (!pdfjsReady) {
+    pdfjsReady = true;
+    if (typeof Worker === 'function') {
+      const workerModule = await import('./pdf-worker.js?worker&url');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+    } else {
+      // No Web Workers here: importing the worker entry publishes
+      // `globalThis.pdfjsWorker`, which pdf.js uses on the main thread.
+      await import('./pdf-worker.js');
+    }
+  }
   return pdfjsLib;
 }
 
@@ -214,26 +237,158 @@ function textToPdfDocument(text, title, onProgress) {
   });
 }
 
-function makeSpreadsheetBlob(rows) {
-  const zip = new JSZip();
-  const sheetRows = rows.map((row, rowIndex) => {
-    const cells = row.map((value, colIndex) => {
-      let column = '';
-      for (let n = colIndex + 1; n > 0; n = Math.floor((n - 1) / 26)) {
-        column = String.fromCharCode(65 + (n - 1) % 26) + column;
+/** Spreadsheet style ids, matching the order of cellXfs in the styles part below. */
+const SHEET_STYLE = { default: 0, header: 1, currency: 2, percent: 3, wrapped: 4 };
+
+/** `$1,234.50`-style currency, per symbol; a bare number keeps Excel's General format. */
+const CURRENCY_PATTERN = /^([$€£¥₹])\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)$/;
+const PERCENT_PATTERN = /^(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*%$/;
+/** Plain numbers only: no leading zeros (so "007" and "1.2.3" stay text), no exponents. */
+const NUMBER_PATTERN = /^-?(?:0|[1-9]\d{0,14})(?:\.\d+)?$/;
+
+/**
+ * Classify a PDF text cell as a spreadsheet value.
+ *
+ * Numbers must arrive as real numeric cells, otherwise SUM() and charts silently
+ * treat a converted sheet as text. Anything ambiguous (leading zeros, phone numbers,
+ * codes such as "1.2.3") deliberately stays text.
+ *
+ * @param {string} text
+ * @returns {{ kind: 'empty' | 'text' | 'number', value?: string, style?: number, numeric?: number }}
+ */
+function parseSpreadsheetCell(text) {
+  const value = String(text ?? '').trim();
+  if (!value) return { kind: 'empty' };
+  if (NUMBER_PATTERN.test(value)) {
+    return { kind: 'number', value: String(Number(value)), numeric: Number(value) };
+  }
+  const currency = value.match(CURRENCY_PATTERN);
+  if (currency) {
+    const numeric = Number(currency[2].replace(/,/g, ''));
+    return { kind: 'number', value: String(numeric), numeric, style: SHEET_STYLE.currency };
+  }
+  const percent = value.match(PERCENT_PATTERN);
+  if (percent) {
+    const numeric = Number(percent[1].replace(/,/g, '')) / 100;
+    return { kind: 'number', value: String(numeric), numeric, style: SHEET_STYLE.percent };
+  }
+  return { kind: 'text' };
+}
+
+/** 0-based column index to spreadsheet letters (0 -> A, 26 -> AA). */
+function spreadsheetColumn(index) {
+  let label = '';
+  for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
+    label = String.fromCharCode(65 + (n - 1) % 26) + label;
+  }
+  return label;
+}
+
+/** Excel sheet names: max 31 chars, and no []:*?/\ characters. */
+function spreadsheetSheetName(name, index) {
+  const cleaned = String(name || '').replace(/[[\]:*?/\\]/g, ' ').trim().slice(0, 31);
+  return cleaned || `Sheet ${index + 1}`;
+}
+
+/**
+ * Build one sheet XML part from a matrix of raw cell strings.
+ *
+ * Emits real numeric cells with number formats, an emphasised header row and column
+ * widths sized to the content, so the result behaves like a normal worksheet.
+ */
+function spreadsheetSheetXml(rows) {
+  const columnCount = rows.reduce((widest, row) => Math.max(widest, row.length), 0);
+  const widths = Array.from({ length: columnCount }, (_, columnIndex) => {
+    const longest = rows.reduce((length, row) => Math.max(length, String(row[columnIndex] ?? '').trim().length), 0);
+    return Math.min(60, Math.max(8, longest + 2));
+  });
+
+  const tableRows = rows.map((row, rowIndex) => {
+    const isHeader = rowIndex === 0 && row.some((cell) => String(cell ?? '').trim());
+    const cells = row.map((rawValue, columnIndex) => {
+      const address = `${spreadsheetColumn(columnIndex)}${rowIndex + 1}`;
+      const cell = parseSpreadsheetCell(rawValue);
+      if (cell.kind === 'empty') return '';
+      const style = isHeader ? SHEET_STYLE.header : (cell.style ?? SHEET_STYLE.default);
+      if (cell.kind === 'number') {
+        return `<c r="${address}"${style ? ` s="${style}"` : ''}><v>${cell.value}</v></c>`;
       }
-      const address = `${column}${rowIndex + 1}`;
-      return `<c r="${address}" t="inlineStr"><is><t xml:space="preserve">${xmlEscape(value)}</t></is></c>`;
+      return `<c r="${address}"${style ? ` s="${style}"` : ''} t="inlineStr"><is><t xml:space="preserve">${xmlEscape(String(rawValue).trim())}</t></is></c>`;
     }).join('');
-    return `<row r="${rowIndex + 1}">${cells}</row>`;
+    return `<row r="${rowIndex + 1}"${isHeader ? ' ht="18" customHeight="1"' : ''}>${cells}</row>`;
   }).join('');
 
+  const columns = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`).join('');
+  const headerRow = rows.length && rows[0].some((cell) => String(cell ?? '').trim())
+    ? '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
+    : '<sheetViews><sheetView workbookViewId="0"/></sheetViews>';
+
+  return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${headerRow}${columns ? `<cols>${columns}</cols>` : ''}<sheetData>${tableRows}</sheetData><pageMargins left="0.5" right="0.5" top="0.5" bottom="0.5" header="0.3" footer="0.3"/></worksheet>`;
+}
+
+const SPREADSHEET_STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <numFmts count="2">
+    <numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00"/>
+    <numFmt numFmtId="165" formatCode="0.00%"/>
+  </numFmts>
+  <fonts count="2">
+    <font><sz val="11"/><name val="Calibri"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FF1F2933"/><name val="Calibri"/><family val="2"/></font>
+  </fonts>
+  <fills count="3">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE8EDF2"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2">
+    <border><left/><right/><top/><bottom/><diagonal/></border>
+    <border><left/><right/><top/><bottom style="thin"><color rgb="FFB6BEC7"/></bottom><diagonal/></border>
+  </borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="5">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+    <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+  </cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
+</styleSheet>`;
+
+/**
+ * Package worksheets into a real .xlsx workbook, one sheet per source page.
+ *
+ * @param {{ name?: string, rows: string[][] }[]} sheets
+ */
+function makeSpreadsheetBlob(sheets) {
+  const zip = new JSZip();
+  const usedNames = new Set();
+  const sheetEntries = sheets.map((sheet, index) => {
+    let name = spreadsheetSheetName(sheet.name, index);
+    // Excel rejects duplicate sheet names.
+    let suffix = 2;
+    while (usedNames.has(name.toLowerCase())) {
+      name = `${spreadsheetSheetName(sheet.name, index).slice(0, 27)} (${suffix++})`;
+    }
+    usedNames.add(name.toLowerCase());
+    return { name, path: `xl/worksheets/sheet${index + 1}.xml`, rows: sheet.rows };
+  });
+
+  sheetEntries.forEach((sheet) => zip.file(sheet.path, spreadsheetSheetXml(sheet.rows)));
+  zip.file('xl/styles.xml', SPREADSHEET_STYLES_XML);
+
+  const sheetOverrides = sheetEntries
+    .map((_, index) => `  <Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`)
+    .join('\n');
   zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+${sheetOverrides}
 </Types>`);
   zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -241,14 +396,14 @@ function makeSpreadsheetBlob(rows) {
 </Relationships>`);
   zip.file('xl/_rels/workbook.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+${sheetEntries.map((_, index) => `  <Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('\n')}
+  <Relationship Id="rId${sheetEntries.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
 </Relationships>`);
   zip.file('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-  <sheets><sheet name="Extracted Data" sheetId="1" r:id="rId1"/></sheets>
+  <sheets>${sheetEntries.map((sheet, index) => `<sheet name="${xmlEscape(sheet.name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets>
 </workbook>`);
-  zip.file('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${sheetRows}</sheetData></worksheet>`);
+
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
@@ -287,13 +442,111 @@ function layoutLineCells(line) {
   return cells;
 }
 
+/**
+ * Word-safe run text: control characters are illegal in OOXML and would corrupt the
+ * document, so they are stripped.
+ */
+function wordSafeText(text) {
+  return String(text ?? '').replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+}
+
+/**
+ * One <w:r> for a positioned PDF text item, keeping size, weight and colour.
+ *
+ * @param {{ text: string, fontFamily?: string, fontSize?: number, bold?: boolean, italic?: boolean }} item
+ */
 function wordTextRun(item) {
-  const safeText = item.text.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
+  const safeText = wordSafeText(item.text);
   if (!safeText) return '';
-  const family = String(item.fontFamily || 'Arial').replace(/[^a-z0-9 ,_-]/gi, '').slice(0, 80) || 'Arial';
+  // Word measures type in half-points; the PDF font size is in points.
+  const fontSize = Math.max(2, Math.round((item.fontSize || 10) * 2));
   const styles = `${item.bold ? '<w:b/><w:bCs/>' : ''}${item.italic ? '<w:i/><w:iCs/>' : ''}`;
-  const fontSize = Math.max(2, Math.round(item.fontSize * 1.5));
-  return `<w:r><w:rPr><w:rFonts w:ascii="${xmlEscape(family)}" w:hAnsi="${xmlEscape(family)}"/><w:sz w:val="${fontSize}"/><w:szCs w:val="${fontSize}"/>${styles}</w:rPr><w:t xml:space="preserve">${xmlEscape(safeText)}</w:t></w:r>`;
+  return `<w:r><w:rPr><w:sz w:val="${fontSize}"/><w:szCs w:val="${fontSize}"/>${styles}</w:rPr><w:t xml:space="preserve">${xmlEscape(safeText)}</w:t></w:r>`;
+}
+
+/**
+ * Group a page's lines into an ordered list of blocks: table rows and prose lines.
+ *
+ * A real table beats tab-separated text: rows that split into the same number of
+ * cells (at least two), that sit close together, become one table. Everything else
+ * stays a normal paragraph, so prose is never mangled into a one-column table.
+ * A lone aligned row directly above a table with the same column count (a table
+ * header, typically) is folded into it.
+ *
+ * @param {{ height: number, lines: any[] }} page
+ * @returns {({ type: 'line', line: any } | { type: 'table', rows: string[][] })[]}
+ */
+function groupLayoutBlocks(page) {
+  /** @type {{ top: number, bottom: number, cells: string[], fontSize: number }[]} */
+  const rows = [];
+  /** @type {({ type: 'line', line: any } | { type: 'table', rows: string[][] })[]} */
+  const items = [];
+
+  for (const line of page.lines) {
+    const cells = layoutLineCells(line).map(wordSafeText);
+    const top = Math.max(0, page.height - line.y);
+    const aligned = cells.length >= 2 && cells.every((cell) => cell.trim());
+    if (aligned) {
+      const previous = rows[rows.length - 1];
+      const near = previous && top - previous.bottom < Math.max(line.fontSize * 2.6, 26) && previous.cells.length === cells.length;
+      const row = { top, bottom: top + line.fontSize * 1.35, cells, fontSize: line.fontSize };
+      if (near) {
+        previous.bottom = row.bottom;
+        const group = /** @type {{ type: 'table', rows: string[][] }} */ (items[items.length - 1]);
+        group.rows.push(cells);
+      } else {
+        rows.push(row);
+        items.push({ type: 'table', rows: [cells] });
+      }
+    } else {
+      items.push({ type: 'line', line });
+      rows.length = 0;
+    }
+  }
+
+  // Fold a single-row table (a header above a gap) into the table that follows it.
+  for (let index = 0; index < items.length - 1; index += 1) {
+    const current = items[index];
+    const next = items[index + 1];
+    if (current.type !== 'table' || current.rows.length !== 1) continue;
+    if (next.type !== 'table' || next.rows.length < 2) continue;
+    if (current.rows[0].length !== next.rows[0].length) continue;
+    next.rows.unshift(current.rows[0]);
+    items.splice(index, 1);
+    index -= 1;
+  }
+
+  // A table needs at least two rows to be a table; a single row is a line of text.
+  return items.map((item) => {
+    if (item.type !== 'table' || item.rows.length >= 2) return item;
+    return {
+      type: /** @type {const} */ ('line'),
+      line: { fontSize: 10, items: [{ text: item.rows[0].join('    '), fontSize: 10, x: 0, right: 0 }] }
+    };
+  });
+}
+
+/**
+ * Build a Word table (fixed layout, banded header) from detected rows.
+ *
+ * @param {{ rows: string[][] }} table
+ * @param {number} contentWidth width in twips
+ */
+function wordTableXml(table, contentWidth) {
+  const columns = Math.max(1, table.rows[0]?.length || 1);
+  const columnWidth = Math.max(600, Math.floor(contentWidth / columns));
+  const border = '<w:{edge} w:val="single" w:sz="4" w:space="0" w:color="B6BEC7"/>';
+  const borders = ['top', 'left', 'bottom', 'right', 'insideH', 'insideV']
+    .map((edge) => border.replace('{edge}', edge))
+    .join('');
+
+  const rows = table.rows.map((cells, rowIndex) => {
+    const isHeader = rowIndex === 0;
+    const shade = isHeader ? '<w:shd w:val="clear" w:color="auto" w:fill="E8EDF2"/>' : '';
+    return `<w:tr>${cells.map((cell) => `<w:tc><w:tcPr><w:tcW w:w="${columnWidth}" w:type="dxa"/>${shade}</w:tcPr><w:p><w:pPr><w:spacing w:before="20" w:after="20" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr>${isHeader ? '<w:b/>' : ''}<w:sz w:val="20"/><w:szCs w:val="20"/></w:rPr><w:t xml:space="preserve">${xmlEscape(cell)}</w:t></w:r></w:p></w:tc>`).join('')}</w:tr>`;
+  }).join('');
+
+  return `<w:tbl><w:tblPr><w:tblW w:w="${contentWidth}" w:type="dxa"/><w:tblBorders>${borders}</w:tblBorders><w:tblLayout w:type="fixed"/><w:tblCellMar><w:left w:w="80" w:type="dxa"/><w:right w:w="80" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${Array.from({ length: columns }, () => `<w:gridCol w:w="${columnWidth}"/>`).join('')}</w:tblGrid>${rows}</w:tbl>`;
 }
 
 /**
@@ -754,10 +1007,17 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     return Array.from(node.getElementsByTagName('*')).filter((element) => element.localName === localName);
   }
 
+  /**
+   * Read an attribute by local name, ignoring any namespace prefix.
+   *
+   * OOXML stores relationship ids as `r:id`. `getAttribute('id')` returns the plain
+   * `id` (for a slide that is its numeric slide id, e.g. "256"), so matching on the
+   * local name is what actually finds the relationship.
+   */
   function officeAttribute(node, localName) {
-    return node.getAttribute(localName) ||
-      Array.from(node.attributes || []).find((attribute) => attribute.localName === localName)?.value ||
-      null;
+    const attribute = Array.from(node.attributes || []).find((item) => item.localName === localName);
+    if (attribute) return attribute.value;
+    return node.getAttribute(localName) || null;
   }
 
   function officeFontFamily(value) {
@@ -1029,6 +1289,75 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     return sheets.join('');
   }
 
+  /**
+   * Placeholder geometry from a slide layout or master.
+   *
+   * Real presentations leave `<a:xfrm>` off most placeholders and inherit the box from
+   * the layout (title here, body there). Without this lookup those shapes were dropped,
+   * so a perfectly normal deck converted to a blank page.
+   *
+   * @returns {Promise<Map<string, { x: number, y: number, cx: number, cy: number }>>}
+   */
+  async function placeholderGeometry(zip, partPath) {
+    /** @type {Map<string, { x: number, y: number, cx: number, cy: number }>} */
+    const geometry = new Map();
+    if (!partPath) return geometry;
+    const partFile = zip.file(partPath);
+    if (!partFile) return geometry;
+    const part = new DOMParser().parseFromString(await partFile.async('text'), 'application/xml');
+    for (const shape of officeElements(part, 'sp')) {
+      const placeholder = officeElements(shape, 'ph')[0];
+      if (!placeholder) continue;
+      const transform = officeElements(shape, 'xfrm')[0];
+      const offset = transform && officeChildren(transform, 'off')[0];
+      const extent = transform && officeChildren(transform, 'ext')[0];
+      if (!offset || !extent) continue;
+      const box = {
+        x: Number(offset.getAttribute('x')),
+        y: Number(offset.getAttribute('y')),
+        cx: Number(extent.getAttribute('cx')),
+        cy: Number(extent.getAttribute('cy'))
+      };
+      if (!(box.cx > 0 && box.cy > 0)) continue;
+      // Placeholders match on `idx` first, then on `type` (title, body, subTitle…).
+      const idx = placeholder.getAttribute('idx');
+      const type = placeholder.getAttribute('type') || 'obj';
+      if (idx !== null) geometry.set(`idx:${idx}`, box);
+      if (!geometry.has(`type:${type}`)) geometry.set(`type:${type}`, box);
+    }
+    return geometry;
+  }
+
+  /** Resolve the layout part that belongs to a slide, then the master behind it. */
+  async function slideInheritedGeometry(zip, slidePath, slideRelationships) {
+    const geometry = new Map();
+    const layoutTarget = slideRelationships
+      ? officeElements(slideRelationships, 'Relationship')
+        .find((relationship) => /\/slideLayout$/.test(String(relationship.getAttribute('Type') || '')))
+        ?.getAttribute('Target')
+      : null;
+    if (!layoutTarget) return geometry;
+    const layoutPath = await resolveOfficePath(slidePath.slice(0, slidePath.lastIndexOf('/')), layoutTarget);
+    const layoutGeometry = await placeholderGeometry(zip, layoutPath);
+    layoutGeometry.forEach((box, key) => geometry.set(key, box));
+
+    // Anything the layout does not define comes from the master.
+    const layoutRelsFile = zip.file(`${layoutPath.slice(0, layoutPath.lastIndexOf('/'))}/_rels/${layoutPath.slice(layoutPath.lastIndexOf('/') + 1)}.rels`);
+    if (layoutRelsFile) {
+      const layoutRels = new DOMParser().parseFromString(await layoutRelsFile.async('text'), 'application/xml');
+      const masterTarget = officeElements(layoutRels, 'Relationship')
+        .find((relationship) => /\/slideMaster$/.test(String(relationship.getAttribute('Type') || '')))
+        ?.getAttribute('Target');
+      if (masterTarget) {
+        const masterPath = await resolveOfficePath(layoutPath.slice(0, layoutPath.lastIndexOf('/')), masterTarget);
+        (await placeholderGeometry(zip, masterPath)).forEach((box, key) => {
+          if (!geometry.has(key)) geometry.set(key, box);
+        });
+      }
+    }
+    return geometry;
+  }
+
   async function powerpointDocumentHtml(file) {
     const zip = await JSZip.loadAsync(await readFileAsArrayBuffer(file));
     const parseXml = (xml) => new DOMParser().parseFromString(xml, 'application/xml');
@@ -1053,8 +1382,18 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     const scale = Math.min(slideSizePx.width / slideWidth, slideSizePx.height / slideHeight);
     const slides = [];
 
+    // Fallback list for decks whose slide list is stored unusually: any relationship
+    // that points at a slide, in numeric order.
+    const slideTargets = (presentationRels ? officeElements(presentationRels, 'Relationship') : [])
+      .filter((relationship) => /\/slide$/.test(String(relationship.getAttribute('Type') || '')))
+      .map((relationship) => String(relationship.getAttribute('Target') || ''))
+      .filter(Boolean)
+      .sort((a, b) => Number(a.match(/(\d+)\.xml$/)?.[1] || 0) - Number(b.match(/(\d+)\.xml$/)?.[1] || 0));
+
+    let slideIndex = 0;
     for (const slideReference of officeElements(presentation, 'sldId')) {
-      const target = relationshipTargets.get(officeAttribute(slideReference, 'id'));
+      const target = relationshipTargets.get(officeAttribute(slideReference, 'id')) || slideTargets[slideIndex];
+      slideIndex += 1;
       if (!target) throw new Error('Could not locate a PowerPoint slide.');
       const slidePath = await resolveOfficePath('ppt', target);
       const slideFile = zip.file(slidePath);
@@ -1076,16 +1415,38 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       const slideBackground = officeElements(slide, 'bg')[0];
       const backgroundColor = slideBackground && officeElements(slideBackground, 'srgbClr')[0]?.getAttribute('val');
 
+      const inheritedGeometry = await slideInheritedGeometry(zip, slidePath, slideRelationships);
+
       for (const shape of Array.from(shapes.children)) {
         const shapeProperties = officeChildren(shape, 'spPr')[0];
         const transform = officeChildren(shapeProperties || document.createElement('span'), 'xfrm')[0] || officeElements(shape, 'xfrm')[0];
         const offset = officeChildren(transform || document.createElement('span'), 'off')[0];
         const extent = officeChildren(transform || document.createElement('span'), 'ext')[0];
-        if (!offset || !extent) continue;
-        const x = Number(offset.getAttribute('x')) * scale;
-        const y = Number(offset.getAttribute('y')) * scale;
-        const width = Number(extent.getAttribute('cx')) * scale;
-        const height = Number(extent.getAttribute('cy')) * scale;
+        /** @type {{ x: number, y: number, cx: number, cy: number } | undefined} */
+        let box;
+        if (offset && extent) {
+          box = {
+            x: Number(offset.getAttribute('x')),
+            y: Number(offset.getAttribute('y')),
+            cx: Number(extent.getAttribute('cx')),
+            cy: Number(extent.getAttribute('cy'))
+          };
+        } else {
+          // Placeholders inherit their box from the layout or master.
+          const placeholder = officeElements(shape, 'ph')[0];
+          if (placeholder) {
+            const idx = placeholder.getAttribute('idx');
+            const type = placeholder.getAttribute('type') || 'obj';
+            box = (idx !== null ? inheritedGeometry.get(`idx:${idx}`) : undefined)
+              || inheritedGeometry.get(`type:${type}`)
+              || (type === 'title' || type === 'ctrTitle' ? { x: 0.05 * slideWidth, y: 0.03 * slideHeight, cx: 0.9 * slideWidth, cy: 0.16 * slideHeight } : undefined);
+          }
+        }
+        if (!box) continue;
+        const x = box.x * scale;
+        const y = box.y * scale;
+        const width = box.cx * scale;
+        const height = box.cy * scale;
         if (!(width > 0 && height > 0)) continue;
         const position = `position:absolute;left:${x}px;top:${y}px;width:${width}px;height:${height}px;overflow:hidden`;
 
@@ -1206,6 +1567,88 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     return `${styles ? `<style>${styles}</style>` : ''}${parsed.body.innerHTML}`;
   }
 
+  /**
+   * Whether this browser can rasterise the laid-out document (canvas 2D + PNG).
+   *
+   * Where it cannot (Node, very old mobile browsers), Office to PDF falls back to a
+   * text-and-table PDF instead of failing outright.
+   */
+  function canRasterizeLayout() {
+    try {
+      if (typeof document === 'undefined' || typeof document.createElement !== 'function') return false;
+      const canvas = document.createElement('canvas');
+      if (!canvas || typeof canvas.getContext !== 'function') return false;
+      if (!canvas.getContext('2d') || typeof canvas.toBlob !== 'function') return false;
+      // Rasterising page images needs real layout: measured boxes, line breaking and
+      // font metrics. Environments without a layout engine (test DOMs, text browsers)
+      // report zero-sized boxes, so probe for that instead of guessing.
+      const probe = document.createElement('div');
+      probe.textContent = 'layout probe';
+      probe.style.cssText = 'position:absolute;left:-9999px;top:0;font:16px sans-serif';
+      document.body.appendChild(probe);
+      const box = probe.getBoundingClientRect();
+      probe.remove();
+      return box.width > 0 && box.height > 0 && Boolean(document.fonts);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Flatten laid-out Office markup into readable text blocks.
+   *
+   * Table rows keep their cells separated (otherwise "Item", "Qty" and "Price" merge
+   * into "ItemQtyPrice"), and each slide or worksheet starts a new PDF page.
+   *
+   * @returns {{ text: string, newPage: boolean }[]}
+   */
+  function layoutHtmlToTextBlocks(html) {
+    /** @type {{ text: string, newPage: boolean }[]} */
+    const blocks = [];
+    if (typeof DOMParser === 'undefined') {
+      String(html)
+        .replace(/<\/t[dh]>/gi, ' | ')
+        .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&nbsp;/gi, ' ')
+        .split('\n')
+        .map((line) => line.replace(/(\s*\|\s*)+$/, '').replace(/\s+/g, ' ').trim())
+        .filter(Boolean)
+        .forEach((text) => blocks.push({ text, newPage: false }));
+      return blocks;
+    }
+
+    const parsed = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+    const containers = parsed.body.querySelectorAll('.slide, .sheet');
+    const roots = containers.length ? Array.from(containers) : [parsed.body];
+
+    for (const [rootIndex, root] of roots.entries()) {
+      // Slides and sheets are separate pages, but the first one continues page 1.
+      let firstBlockInRoot = true;
+      for (const element of root.querySelectorAll('h1,h2,h3,h4,h5,h6,p,li,tr,div')) {
+        if (element.querySelector('h1,h2,h3,h4,h5,h6,p,li,tr,div')) continue;
+        let text;
+        if (element.tagName === 'TR') {
+          text = Array.from(element.querySelectorAll('td,th'))
+            .map((cell) => (cell.textContent || '').replace(/\s+/g, ' ').trim())
+            .filter(Boolean)
+            .join('  |  ');
+        } else {
+          text = (element.textContent || '').replace(/\s+/g, ' ').trim();
+        }
+        if (!text) continue;
+        blocks.push({ text, newPage: rootIndex > 0 && firstBlockInRoot });
+        firstBlockInRoot = false;
+      }
+    }
+
+    if (!blocks.length) {
+      const text = (parsed.body.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) blocks.push({ text, newPage: false });
+    }
+    return blocks;
+  }
+
   async function officeHtmlToPdf(file, html, onProgress) {
     if (onProgress) onProgress(55, 'Laying out document pages with tables and formatting...');
     const extension = file.name.toLowerCase();
@@ -1229,7 +1672,8 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       await frameLoaded;
       const frameDocument = iframe.contentDocument;
       if (!frameDocument) throw new Error('Could not access the rendered Office document.');
-      await frameDocument.fonts.ready;
+      // `document.fonts` is missing in some embedded/older engines; sizing still works.
+      await frameDocument.fonts?.ready;
       await Promise.all(Array.from(frameDocument.images).map((image) => image.decode()));
       const content = frameDocument.getElementById('office-page');
       if (!content) throw new Error('Could not lay out the Office document content.');
@@ -1399,22 +1843,92 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     }
   }
 
+  /**
+   * Build a text-preserving PDF straight from the extracted document text.
+   *
+   * Used when the browser cannot rasterise a laid-out page. The pages keep real,
+   * selectable text (so copy/paste and search work) instead of page images.
+   */
+  async function officeHtmlToTextPdf(file, html, onProgress) {
+    if (onProgress) onProgress(55, 'Laying out document text as PDF pages...');
+    const blocks = layoutHtmlToTextBlocks(html);
+    if (!blocks.length) throw new Error('No readable document content was found.');
+    const isLandscape = /\.(xlsx|pptx)$/i.test(file.name);
+    const pageWidth = isLandscape ? 842 : 595.28;
+    const pageHeight = isLandscape ? 595.28 : 841.89;
+    const margin = 48;
+    const fontSize = 10.5;
+    const lineHeight = 14.5;
+    const maxChars = Math.floor((pageWidth - margin * 2) / (fontSize * 0.5));
+    const pdf = await PDFDocument.create();
+    const font = await pdf.embedFont(StandardFonts.Helvetica);
+    let page = pdf.addPage([pageWidth, pageHeight]);
+    let y = pageHeight - margin;
+    let pageCount = 1;
+
+    const writeLine = (text) => {
+      if (y < margin) {
+        page = pdf.addPage([pageWidth, pageHeight]);
+        pageCount += 1;
+        y = pageHeight - margin;
+      }
+      const safe = String(text).replace(/[^\u0000-\u00FF]/g, '?');
+      if (safe) page.drawText(safe, { x: margin, y, size: fontSize, font, color: rgb(0.12, 0.14, 0.18) });
+      y -= lineHeight;
+    };
+
+    const breakPage = () => {
+      page = pdf.addPage([pageWidth, pageHeight]);
+      pageCount += 1;
+      y = pageHeight - margin;
+    };
+
+    for (const block of blocks) {
+      if (block.newPage) breakPage();
+      let remaining = block.text;
+      while (remaining.length > maxChars) {
+        let breakAt = remaining.lastIndexOf(' ', maxChars);
+        if (breakAt < 1) breakAt = maxChars;
+        writeLine(remaining.slice(0, breakAt));
+        remaining = remaining.slice(breakAt).trimStart();
+      }
+      writeLine(remaining);
+      y -= fontSize * 0.35;
+    }
+
+    if (onProgress) onProgress(90, 'Finalizing PDF pages...');
+    pdf.setTitle(file.name.replace(/\.[^/.]+$/, ''));
+    return { data: await pdf.save(), pageCount };
+  }
+
   export async function processOfficeToPDF(file, onProgress) {
+    if (!file) throw new Error('Please choose an Office file to convert.');
     if (onProgress) onProgress(15, 'Reading Office document content...');
     const extension = file.name.toLowerCase();
+    /** @type {string | null} */
+    let html = null;
     if (extension.endsWith('.docx')) {
-      return officeHtmlToPdf(file, await wordDocumentHtml(file), onProgress);
+      html = await wordDocumentHtml(file);
+    } else if (extension.endsWith('.xlsx')) {
+      html = await excelDocumentHtml(file);
+    } else if (extension.endsWith('.pptx')) {
+      html = await powerpointDocumentHtml(file);
     }
-    if (extension.endsWith('.xlsx')) {
-      return officeHtmlToPdf(file, await excelDocumentHtml(file), onProgress);
-    }
-    if (extension.endsWith('.pptx')) {
-      return officeHtmlToPdf(file, await powerpointDocumentHtml(file), onProgress);
-    }
-    const text = await extractOfficeText(file);
-    if (!text.trim()) throw new Error('No text was found in this Office document.');
-    if (onProgress) onProgress(55, 'Converting extracted content to PDF...');
-    const result = await textToPdfDocument(text, file.name.replace(/\.[^/.]+$/, ''), onProgress);
+
+    // Browsers lay the document out in a hidden frame and render pages to images, which
+    // keeps exact fonts and positions. Without canvas support the same content still
+    // becomes a PDF with real, selectable text rather than an error.
+    const result = html && canRasterizeLayout()
+      ? await officeHtmlToPdf(file, html, onProgress)
+      : html
+        ? await officeHtmlToTextPdf(file, html, onProgress)
+        : await (async () => {
+          const text = await extractOfficeText(file);
+          if (!text.trim()) throw new Error('No text was found in this Office document.');
+          if (onProgress) onProgress(55, 'Converting extracted content to PDF...');
+          return textToPdfDocument(text, file.name.replace(/\.[^/.]+$/, ''), onProgress);
+        })();
+
     return {
       ...result,
       filename: `${file.name.replace(/\.[^/.]+$/, '')}.pdf`,
@@ -1464,13 +1978,14 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     if (format === 'xlsx') {
       if (!hasText) throw new Error('No selectable text was found in the PDF. Scanned pages require OCR before they can be converted to editable spreadsheet cells.');
       if (onProgress) onProgress(88, 'Building editable spreadsheet cells from positioned PDF text...');
-      const rows = [];
-      for (const [pageIndex, page] of pages.entries()) {
-        if (pageIndex > 0) rows.push([]);
-        for (const line of page.lines) rows.push(layoutLineCells(line));
-      }
+      // One worksheet per PDF page keeps page numbers, notes and totals apart instead
+      // of stacking them into a single endless column.
+      const sheets = pages.map((page, pageIndex) => ({
+        name: pages.length > 1 ? `Page ${pageIndex + 1}` : 'Extracted Data',
+        rows: page.lines.map((line) => layoutLineCells(line)).filter((cells) => cells.length)
+      }));
       return {
-        data: await makeSpreadsheetBlob(rows),
+        data: await makeSpreadsheetBlob(sheets),
         filename: `${base}.xlsx`,
         mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
         pageCount: pages.length
@@ -1919,42 +2434,68 @@ export async function processPDFToWord(file, onProgress) {
     throw new Error('No selectable text was found in the PDF. Scanned pages require OCR before they can be converted to editable Word text.');
   }
 
-  if (onProgress) onProgress(82, 'Building positioned, editable Word text...');
-  const documentParagraphs = [];
-  pages.forEach((page, pageIndex) => {
-    let previousTop = 0;
-    for (const line of page.lines) {
-      const top = Math.max(0, page.height - line.y);
-      const leading = Math.max(0, top - previousTop - line.fontSize);
-      const stops = line.items
-        .filter((item) => item.x > 2)
-        .map((item) => Math.max(1, Math.round(item.x * 15)))
-        .filter((position, index, positions) => positions.indexOf(position) === index)
-        .map((position) => `<w:tab w:val="left" w:pos="${position}"/>`)
-        .join('');
-      const runs = [];
-      let previousItem;
-      for (const item of line.items) {
-        const gap = previousItem ? item.x - previousItem.right : item.x;
-        if (previousItem && gap > Math.max(2, item.fontSize * 0.5)) {
-          runs.push('<w:r><w:tab/></w:r>');
-        } else if (previousItem && gap > Math.max(1, item.fontSize * 0.15)) {
-          runs.push('<w:r><w:t xml:space="preserve"> </w:t></w:r>');
-        } else if (!previousItem && item.x > 2) {
-          runs.push('<w:r><w:tab/></w:r>');
+  if (onProgress) onProgress(82, 'Building editable Word text, tables and page breaks...');
+
+  /** Word page geometry in twips (1pt = 20 twips) with printable margins. */
+  const pageGeometry = (page) => {
+    const width = Math.round((page.width || 595) * 20);
+    const height = Math.round((page.height || 842) * 20);
+    return {
+      width: Math.min(width, height),
+      height: Math.max(width, height),
+      landscape: width > height
+    };
+  };
+
+  const sectionProperties = (geometry) => `<w:sectPr><w:pgSz w:w="${geometry.width}" w:h="${geometry.height}"${geometry.landscape ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="864" w:right="1080" w:bottom="864" w:left="1080" w:header="720" w:footer="720" w:gutter="0"/><w:docGrid w:linePitch="360"/></w:sectPr>`;
+
+  /** One <w:p> for a line of prose, keeping spacing, size and weight. */
+  const wordParagraph = (line, top, previousBottom) => {
+    const leading = Math.max(0, Math.round((top - previousBottom) * 20));
+    const runs = [];
+    let previousItem;
+    for (const item of line.items) {
+      if (previousItem) {
+        const gap = item.x - previousItem.right;
+        if (gap > Math.max(1, item.fontSize * 0.18)) {
+          runs.push('<w:r><w:rPr><w:sz w:val="2"/></w:rPr><w:t xml:space="preserve"> </w:t></w:r>');
         }
-        runs.push(wordTextRun(item));
-        previousItem = item;
       }
-      if (runs.length) {
-        const lineHeight = Math.max(1, Math.round(line.fontSize * 15 * 1.2));
-        documentParagraphs.push(`<w:p><w:pPr><w:spacing w:before="${Math.round(leading * 15)}" w:after="0" w:line="${lineHeight}" w:lineRule="exact"/>${stops ? `<w:tabs>${stops}</w:tabs>` : ''}</w:pPr>${runs.join('')}</w:p>`);
-        previousTop = top;
+      runs.push(wordTextRun(item));
+      previousItem = item;
+    }
+    if (!runs.join('')) return '';
+    const lineHeight = Math.max(1, Math.round(line.fontSize * 1.3 * 20));
+    return `<w:p><w:pPr><w:spacing w:before="${Math.min(leading, 480)}" w:after="0" w:line="${lineHeight}" w:lineRule="exact"/></w:pPr>${runs.join('')}</w:p>`;
+  };
+
+  const documentSections = [];
+  pages.forEach((page, pageIndex) => {
+    /** @type {string[]} */
+    const blocks = [];
+    let previousBottom = 0;
+
+    for (const block of groupLayoutBlocks(page)) {
+      if (block.type === 'table') {
+        blocks.push(wordTableXml(block, pageGeometry(page).width - 2160));
+        previousBottom = 0;
+        continue;
+      }
+      const line = block.line;
+      const top = Math.max(0, page.height - line.y);
+      const paragraph = wordParagraph(line, top, previousBottom || top);
+      if (paragraph) {
+        blocks.push(paragraph);
+        previousBottom = top + line.fontSize * 1.35;
       }
     }
+
+    // Every source page except the last starts a new Word section, so page size,
+    // orientation and page breaks all match the PDF exactly.
     if (pageIndex < pages.length - 1) {
-      documentParagraphs.push('<w:p><w:r><w:br w:type="page"/></w:r></w:p>');
+      blocks.push(`<w:p><w:pPr>${sectionProperties(pageGeometry(page))}</w:pPr></w:p>`);
     }
+    documentSections.push(blocks.join(''));
   });
 
   const zip = new JSZip();
@@ -1964,10 +2505,12 @@ export async function processPDFToWord(file, onProgress) {
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
   <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
+  <Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>
 </Types>`);
   zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>
 </Relationships>`);
   zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
@@ -1975,17 +2518,24 @@ export async function processPDFToWord(file, onProgress) {
 </Relationships>`);
   zip.file('word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:docDefaults>
+    <w:rPrDefault><w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial" w:cs="Arial"/><w:sz w:val="22"/><w:szCs w:val="22"/></w:rPr></w:rPrDefault>
+    <w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault>
+  </w:docDefaults>
   <w:style w:type="paragraph" w:default="1" w:styleId="Normal">
     <w:name w:val="Normal"/>
-    <w:rPr><w:rFonts w:ascii="Arial" w:hAnsi="Arial"/><w:sz w:val="22"/></w:rPr>
-    <w:pPr><w:spacing w:after="120"/></w:pPr>
+    <w:qFormat/>
   </w:style>
 </w:styles>`);
+  zip.file('docProps/core.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/">
+  <dc:title>${xmlEscape(file.name.replace(/\.[^/.]+$/, ''))}</dc:title>
+</cp:coreProperties>`);
   zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
-    ${documentParagraphs.join('')}
-    <w:sectPr><w:pgSz w:w="${Math.round(pages[0].width * 15)}" w:h="${Math.round(pages[0].height * 15)}"${pages[0].width > pages[0].height ? ' w:orient="landscape"' : ''}/><w:pgMar w:top="0" w:right="0" w:bottom="0" w:left="0" w:header="0" w:footer="0" w:gutter="0"/></w:sectPr>
+    ${documentSections.join('')}
+    ${sectionProperties(pageGeometry(pages[pages.length - 1]))}
   </w:body>
 </w:document>`);
 

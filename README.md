@@ -4,7 +4,7 @@ pdfilove is a browser-side PDF toolkit: 30+ tools built with plain HTML, CSS and
 
 - **Brand:** pdfilove, coral accent `#E84C4F`
 - **Stack:** Vite + vanilla ES modules (no framework), `tsc` with `checkJs` for type checking
-- **Tests:** Vitest + jsdom, 67 tests covering the PDF engine, page-range parsing, file validation and the tool dialog UI
+- **Tests:** Vitest + jsdom, 210 tests covering the PDF engine, every registered tool, page-range parsing, file validation, the dialog UI and real-format Office round trips
 
 ---
 
@@ -23,6 +23,13 @@ pdfilove is a browser-side PDF toolkit: 30+ tools built with plain HTML, CSS and
 - Password-protected PDFs must be unlocked first: editing an encrypted file would silently produce a corrupt document, so the engine refuses it.
 - DOCX/XLSX/PPTX layout is an approximation of Microsoft Office pagination.
 - PDF to Word/Excel/PowerPoint handles selectable text; images and scanned pages are not included.
+- Office to PDF renders exact layout in browsers (hidden frame + canvas). Where the browser
+  cannot rasterise pages, the same content is emitted as a PDF with real, selectable text
+  (tables keep their cell separators, each slide or worksheet starts a new page).
+- PDF to Excel writes numbers as numbers (with currency and percentage formats where the PDF
+  used them) and one worksheet per page; codes like `007` or `1.2.3` stay text.
+- PDF to Word writes aligned rows as real Word tables, prose as paragraphs, and one Word
+  section per PDF page, so page size, orientation and page breaks match the original.
 
 ---
 
@@ -55,12 +62,19 @@ pdfilove is a browser-side PDF toolkit: 30+ tools built with plain HTML, CSS and
 │   ├── navigation.js     # Mobile drawer, header elevation, year sync
 │   ├── tools.js          # Tool registry (single source of truth) + JSDoc types
 │   ├── file-handler.js   # Validation, ArrayBuffer/DataURL/text reading, downloads
+│   ├── runtime-compat.js # Polyfills for the new APIs pdf.js 6 relies on
+│   ├── pdf-worker.js     # pdf.js worker entry (shims + worker, one bundled file)
 │   └── pdf-tools.js      # PDF engine (lazy-loaded chunk)
 ├── tests/
 │   ├── pdf-tools.test.js      # Engine: merge, split, rotate, watermark, metadata…
 │   ├── page-ranges.test.js    # parsePageRanges happy path + every rejection
 │   ├── file-handler.test.js   # validateFile, formatBytes, downloads
-│   └── ui.test.js             # Hero routing, filter ARIA, dialog focus trap
+│   ├── ui.test.js             # Hero routing, filter ARIA, dialog focus trap
+│   ├── tool-matrix.test.js    # Every registered tool through the real engine
+│   ├── tool-ui.test.js        # Every tool's dialog, settings and validation
+│   ├── office-roundtrip.test.js # PDF↔DOCX/XLSX/PPTX opened with real Office parsers
+│   ├── runtime-compat.test.js # pdf.js shims on engines without Promise.try & co.
+│   └── fixtures/              # python-docx/openpyxl/python-pptx fixtures (+ _gen.py)
 ├── types/vite-env.d.ts   # Ambient types (including `*?url` imports)
 ├── vitest.config.ts      # jsdom test environment
 └── vite.config.ts        # Multi-page build
@@ -74,7 +88,7 @@ pdfilove is a browser-side PDF toolkit: 30+ tools built with plain HTML, CSS and
 | --- | --- | --- |
 | `assets/main-*.js` | ~58 kB | every page |
 | `assets/pdf-tools-*.js` | ~570 kB | first tool run |
-| `assets/pdf-*.js` + worker | ~1.7 MB | first pdf.js operation |
+| `assets/pdf-*.js` + `assets/pdf-worker-*.js` | ~1.6 MB | first pdf.js operation |
 
 CI fails if the entry chunk grows past 200 kB, which is what happens if the engine is ever imported statically again.
 
@@ -100,6 +114,10 @@ Only `package-lock.json` is committed. If you use Bun or pnpm, do not commit a s
 - Every new tool needs an entry in `js/tools.js` (`workflow`, `accept`, `multiple`) plus a `case` in `getToolActionBtnLabel`, `getToolSpecificSettingsHTML` and `executeToolOperation` in `js/main.js`.
 - The engine must refuse encrypted input through `loadEditablePdf()` and draw standard-font text through `drawStandardText()`/`measureStandardText()`.
 - Add a test next to the behaviour you changed. `npm test` must pass before a PR is merged.
+- Any new code that runs inside the pdf.js worker must import `js/runtime-compat.js` first;
+  otherwise it breaks on engines without `Promise.try`, `Uint8Array#toHex` and friends.
+- Conversion output must be checked with a real parser (see `tests/office-roundtrip.test.js`),
+  not just "the ZIP has these parts".
 
 ---
 

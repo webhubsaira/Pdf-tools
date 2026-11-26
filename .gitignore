@@ -13,3 +13,7 @@ service-account*.json
 *.pem
 *.p12
 *.pfx
+
+# Python bytecode from the test-fixture generator
+__pycache__/
+tests/fixtures/__pycache__/
