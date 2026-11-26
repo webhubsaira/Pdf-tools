@@ -29,14 +29,17 @@ async function loadEditablePdf(data) {
  * Standard fonts can only encode Latin-1, so measuring is the earliest point where a
  * non-Latin string can be reported with an actionable message instead of a library error.
  *
+ * Pass `forHeight` to get the font's full ascent-to-descent height in points, which is
+ * what centring a stamp needs.
+ *
  * @param {import('pdf-lib').PDFFont} font
  * @param {string} text
  * @param {number} size
  * @returns {number}
  */
-function measureStandardText(font, text, size) {
+function measureStandardText(font, text, size, forHeight = false) {
   try {
-    return font.widthOfTextAtSize(text, size);
+    return forHeight ? font.heightAtSize(size, { descender: true }) : font.widthOfTextAtSize(text, size);
   } catch (error) {
     if (/WinAnsi|cannot encode/i.test(String(error instanceof Error ? error.message : error))) {
       const offending = Array.from(String(text)).find((character) => (character.codePointAt(0) ?? 0) > 0xff) || text;
@@ -557,9 +560,11 @@ export async function processWatermarkPDF(
 
   if (onProgress) onProgress(60, `Stamping watermark across ${pages.length} pages...`);
   const textWidth = measureStandardText(font, text, size);
+  // pdf-lib measures the string's real extent, so ascenders/descenders are centred
+  // rather than the nominal em box (which pushed the stamp above the middle).
+  const textHeight = measureStandardText(font, text, size, true) || font.heightAtSize(size);
   pages.forEach(page => {
     const { width, height } = page.getSize();
-    const textHeight = font.heightAtSize(size);
     page.drawText(text, {
       x: (width - textWidth) / 2,
       y: (height - textHeight) / 2,
@@ -587,6 +592,15 @@ export async function processWatermarkPDF(
  * Add page numbers to header or footer
  */
 export async function processPageNumbers(file, { position = 'bottom-center', format = 'Page {n} of {total}', startFrom = 1 }, onProgress) {
+  // Guard the numbering inputs so a stray value cannot stamp "Page 0" or "-4".
+  const start = Math.trunc(Number(startFrom));
+  if (!Number.isFinite(start) || start < 1) {
+    throw new Error('Start numbering at 1 or higher.');
+  }
+  if (typeof format !== 'string' || !format.trim()) {
+    throw new Error('Choose a page number format.');
+  }
+
   if (onProgress) onProgress(25, 'Loading PDF document...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
   const pdfDoc = await loadEditablePdf(arrayBuffer);
@@ -596,7 +610,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
 
   if (onProgress) onProgress(65, 'Numbering document pages...');
   pages.forEach((page, idx) => {
-    const currentNum = idx + startFrom;
+    const currentNum = idx + start;
     const label = format.replace('{n}', String(currentNum)).replace('{total}', String(total));
     const { width, height } = page.getSize();
     const fontSize = 10;
@@ -2033,13 +2047,19 @@ export async function processPDFMetadata(file, { title, author, subject, keyword
   const arrayBuffer = await readFileAsArrayBuffer(file);
   const pdfDoc = await loadEditablePdf(arrayBuffer);
 
+  // Blank fields mean "leave this value alone", which is what the dialog promises.
+  /** @type {(value?: string) => boolean} */
+  const hasValue = (value) => typeof value === 'string' && value.trim().length > 0;
+  /** @type {(value?: string) => string} */
+  const clean = (value) => (typeof value === 'string' ? value.trim() : '');
+
   if (onProgress) onProgress(70, 'Updating metadata headers...');
-  if (title !== undefined) pdfDoc.setTitle(title);
-  if (author !== undefined) pdfDoc.setAuthor(author);
-  if (subject !== undefined) pdfDoc.setSubject(subject);
-  if (keywords !== undefined) {
-    const list = keywords.split(',').map(s => s.trim()).filter(Boolean);
-    pdfDoc.setKeywords(list);
+  if (hasValue(title)) pdfDoc.setTitle(clean(title));
+  if (hasValue(author)) pdfDoc.setAuthor(clean(author));
+  if (hasValue(subject)) pdfDoc.setSubject(clean(subject));
+  if (hasValue(keywords)) {
+    const list = clean(keywords).split(',').map(s => s.trim()).filter(Boolean);
+    if (list.length) pdfDoc.setKeywords(list);
   }
 
   if (onProgress) onProgress(95, 'Saving updated PDF...');
