@@ -7,14 +7,14 @@ export function initNavigation() {
   const header = document.querySelector('.site-header');
   const menuToggle = document.querySelector('.menu-toggle');
   const mobileNavOverlay = document.querySelector('.mobile-nav-overlay');
-  const mobileNavClose = document.querySelector('.mobile-nav-close');
+  const mobileNavClose = /** @type {HTMLElement|null} */ (document.querySelector('.mobile-nav-close'));
   const mobileNavLinks = document.querySelectorAll('.mobile-nav-link');
   const currentYearEls = document.querySelectorAll('.current-year');
 
   // Dynamic copyright year
   const currentYear = new Date().getFullYear();
   currentYearEls.forEach(el => {
-    el.textContent = currentYear;
+    el.textContent = String(currentYear);
   });
 
   // Header scroll shadow
@@ -34,7 +34,8 @@ export function initNavigation() {
     mobileNavOverlay.classList.add('open');
     mobileNavOverlay.setAttribute('aria-hidden', 'false');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'true');
-    document.body.style.overflow = 'hidden';
+    document.documentElement.classList.add('nav-open');
+    mobileNavClose?.focus({ preventScroll: true });
   }
 
   // Close mobile drawer
@@ -43,7 +44,7 @@ export function initNavigation() {
     mobileNavOverlay.classList.remove('open');
     mobileNavOverlay.setAttribute('aria-hidden', 'true');
     if (menuToggle) menuToggle.setAttribute('aria-expanded', 'false');
-    document.body.style.overflow = '';
+    document.documentElement.classList.remove('nav-open');
   }
 
   if (menuToggle) {

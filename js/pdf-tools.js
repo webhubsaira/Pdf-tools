@@ -7,6 +7,80 @@ import { PDFDocument, rgb, degrees, StandardFonts } from 'pdf-lib';
 import JSZip from 'jszip';
 import { readFileAsArrayBuffer, readFileAsDataURL } from './file-handler.js';
 
+const ENCRYPTED_PDF_ERROR = 'This PDF is password-protected. Use the Unlock PDF tool first, then try again.';
+
+/**
+ * Load a PDF for editing.
+ *
+ * pdf-lib keeps the /Encrypt dictionary when `ignoreEncryption` is set, which makes the
+ * resulting document unreadable once it is saved again (the streams stay ciphertext).
+ * Every editing tool must therefore refuse encrypted input instead of silently
+ * emitting a corrupt file.
+ */
+async function loadEditablePdf(data) {
+  const pdfDoc = await PDFDocument.load(data, { ignoreEncryption: true });
+  if (pdfDoc.isEncrypted) throw new Error(ENCRYPTED_PDF_ERROR);
+  return pdfDoc;
+}
+
+/**
+ * Measure text with a standard (WinAnsi) PDF font.
+ *
+ * Standard fonts can only encode Latin-1, so measuring is the earliest point where a
+ * non-Latin string can be reported with an actionable message instead of a library error.
+ *
+ * @param {import('pdf-lib').PDFFont} font
+ * @param {string} text
+ * @param {number} size
+ * @returns {number}
+ */
+function measureStandardText(font, text, size) {
+  try {
+    return font.widthOfTextAtSize(text, size);
+  } catch (error) {
+    if (/WinAnsi|cannot encode/i.test(String(error instanceof Error ? error.message : error))) {
+      const offending = Array.from(String(text)).find((character) => (character.codePointAt(0) ?? 0) > 0xff) || text;
+      throw new Error(`The text “${offending}” contains characters the built-in PDF font cannot write. Use Latin characters (for example an English translation) and try again.`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Draw text with a standard (WinAnsi) PDF font, returning the measured width.
+ *
+ * @param {import('pdf-lib').PDFPage} page
+ * @param {string} text
+ * @param {import('pdf-lib').PDFPageDrawTextOptions} options
+ * @returns {number}
+ */
+function drawStandardText(page, text, options) {
+  const font = /** @type {import('pdf-lib').PDFFont} */ (options.font);
+  const width = measureStandardText(font, text, options.size ?? 12);
+  page.drawText(text, options);
+  return width;
+}
+
+/**
+ * Yield to the event loop so long raster loops do not freeze the page.
+ * @returns {Promise<void>}
+ */
+function yieldToUi() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * Rasterising a very long document is slow and memory heavy in the browser.
+ * @param {number} pageCount
+ * @param {string} toolName
+ */
+function assertRasterPageBudget(pageCount, toolName) {
+  const MAX_RASTER_PAGES = 400;
+  if (pageCount > MAX_RASTER_PAGES) {
+    throw new Error(`${toolName} works page by page in your browser and is limited to ${MAX_RASTER_PAGES} pages at a time. Split the document first, then run it on each part.`);
+  }
+}
+
 async function loadPdfJs() {
   const [pdfjsLib, workerModule] = await Promise.all([
     import('pdfjs-dist'),
@@ -26,7 +100,7 @@ async function extractPdfPageTexts(file, onProgress) {
 async function extractPdfPageLayouts(file, onProgress) {
   const pdfjsLib = await loadPdfJs();
   const data = new Uint8Array(await readFileAsArrayBuffer(file));
-  const document = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+  const document = await pdfjsLib.getDocument({ data }).promise;
   const pages = [];
 
   for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber++) {
@@ -37,8 +111,9 @@ async function extractPdfPageLayouts(file, onProgress) {
     const viewport = page.getViewport({ scale: 1 });
     const content = await page.getTextContent();
     const items = content.items
-      .filter((item) => typeof item.str === 'string' && item.str.trim())
-      .map((item) => {
+      .filter((item) => 'str' in item && String(item.str).trim())
+      .map((rawItem) => {
+        const item = /** @type {import('pdfjs-dist/types/src/display/api').TextItem} */ (rawItem);
         const fontSize = Math.hypot(item.transform[0], item.transform[1]) || Math.abs(item.height) || 10;
         const fontStyle = content.styles[item.fontName];
         const fontName = String(fontStyle?.fontFamily || '').toLowerCase();
@@ -174,6 +249,15 @@ function makeSpreadsheetBlob(rows) {
   return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
+/**
+ * Read a member of an OOXML package as text, failing clearly when it is missing.
+ */
+function mustReadZipFile(zip, path) {
+  const entry = zip.file(path);
+  if (!entry) throw new Error(`This Office file is missing a required part: ${path}`);
+  return entry.async('text');
+}
+
 function layoutLineText(line) {
   return line.items.map((item, index) => {
     if (index === 0) return item.text;
@@ -226,7 +310,7 @@ export async function processMergePDF(files, onProgress) {
     if (onProgress) onProgress(percent, `Merging file ${i + 1} of ${files.length}: ${file.name}...`);
 
     const arrayBuffer = await readFileAsArrayBuffer(file);
-    const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+    const sourcePdf = await loadEditablePdf(arrayBuffer);
     const copiedPages = await mergedPdf.copyPages(sourcePdf, sourcePdf.getPageIndices());
     copiedPages.forEach((page) => mergedPdf.addPage(page));
   }
@@ -242,59 +326,63 @@ export async function processMergePDF(files, onProgress) {
 }
 
 /**
- * Parse page range string like "1-3, 5, 8-10"
+ * Parse a page selection string such as "1-3, 5, 8-10" into zero-based page indices.
+ *
+ * Strict on purpose: a typo ("3abc", "1.5", "1-3-5") or an out-of-range page must fail
+ * loudly rather than silently produce a different document than the user asked for.
  */
 export function parsePageRanges(rangeStr, maxPages) {
-  if (!rangeStr || !rangeStr.trim()) {
+  if (maxPages < 1) {
+    throw new Error('This document has no pages to select.');
+  }
+  if (!rangeStr || !String(rangeStr).trim()) {
     throw new Error('Please enter at least one page or page range (e.g. 1-3, 5).');
   }
 
   const pages = new Set();
-  const parts = rangeStr.split(',');
+  const parts = String(rangeStr).split(',');
 
   for (const part of parts) {
     const clean = part.trim();
     if (!clean) continue;
 
-    if (clean.includes('-')) {
-      const [startStr, endStr] = clean.split('-');
-      const start = parseInt(startStr.trim(), 10);
-      const end = parseInt(endStr.trim(), 10);
+    const match = /^(\d+)\s*(?:-\s*(\d+))?$/.exec(clean);
+    if (!match) {
+      throw new Error(`"${clean}" is not a valid page or range. Use numbers like 3 or ranges like 1-3, separated by commas.`);
+    }
 
-      if (isNaN(start) || isNaN(end) || start < 1 || end < start) {
-        throw new Error(`Invalid range format: "${clean}". Use format like 1-3.`);
-      }
+    const start = parseInt(match[1], 10);
+    const end = match[2] === undefined ? start : parseInt(match[2], 10);
 
-      for (let p = start; p <= end; p++) {
-        if (p <= maxPages) {
-          pages.add(p - 1); // 0-indexed
-        }
-      }
-    } else {
-      const pageNum = parseInt(clean, 10);
-      if (isNaN(pageNum) || pageNum < 1) {
-        throw new Error(`Invalid page number: "${clean}".`);
-      }
-      if (pageNum <= maxPages) {
-        pages.add(pageNum - 1);
-      }
+    if (start < 1 || end < 1) {
+      throw new Error(`Page numbers start at 1, so "${clean}" is out of range.`);
+    }
+    if (end < start) {
+      throw new Error(`The range "${clean}" runs backwards. Use the smaller page number first (e.g. ${end}-${start}).`);
+    }
+    if (end > maxPages) {
+      throw new Error(`"${clean}" goes past the last page. This document has ${maxPages} page${maxPages === 1 ? '' : 's'}.`);
+    }
+
+    for (let page = start; page <= end; page++) {
+      pages.add(page - 1); // 0-indexed
     }
   }
 
   if (pages.size === 0) {
-    throw new Error(`Specified pages exceed total document pages (${maxPages}).`);
+    throw new Error('Please enter at least one page or page range (e.g. 1-3, 5).');
   }
 
   return Array.from(pages).sort((a, b) => a - b);
 }
 
 /**
- * Split PDF by page range
+ * Extract the selected pages of a PDF into a new document.
  */
 export async function processSplitPDF(file, rangeStr, onProgress) {
   if (onProgress) onProgress(20, 'Loading PDF document...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const sourcePdf = await loadEditablePdf(arrayBuffer);
   const totalPages = sourcePdf.getPageCount();
 
   if (onProgress) onProgress(50, 'Analyzing requested page ranges...');
@@ -318,12 +406,47 @@ export async function processSplitPDF(file, rangeStr, onProgress) {
 }
 
 /**
+ * Split a PDF into one document per selected page, delivered as a ZIP archive.
+ */
+export async function processSplitToFilesPDF(file, rangeStr, onProgress) {
+  if (onProgress) onProgress(20, 'Loading PDF document...');
+  const arrayBuffer = await readFileAsArrayBuffer(file);
+  const sourcePdf = await loadEditablePdf(arrayBuffer);
+  const totalPages = sourcePdf.getPageCount();
+
+  if (onProgress) onProgress(45, 'Analyzing requested page ranges...');
+  const pageIndices = parsePageRanges(rangeStr, totalPages);
+  const zip = new JSZip();
+  const base = file.name.replace(/\.[^/.]+$/, '');
+  const digits = String(totalPages).length;
+
+  for (const [position, pageIndex] of pageIndices.entries()) {
+    if (onProgress) {
+      onProgress(50 + Math.round(((position + 1) / pageIndices.length) * 40), `Writing page ${pageIndex + 1} of ${totalPages} to its own file...`);
+    }
+    const single = await PDFDocument.create();
+    const [copied] = await single.copyPages(sourcePdf, [pageIndex]);
+    single.addPage(copied);
+    zip.file(`${base}-page-${String(pageIndex + 1).padStart(digits, '0')}.pdf`, await single.save());
+  }
+
+  if (onProgress) onProgress(95, 'Packaging split pages into a ZIP archive...');
+  return {
+    data: await zip.generateAsync({ type: 'blob', mimeType: 'application/zip' }),
+    filename: `${base}-split-pages.zip`,
+    mimeType: 'application/zip',
+    pageCount: pageIndices.length,
+    fileCount: pageIndices.length
+  };
+}
+
+/**
  * Remove selected pages from PDF
  */
 export async function processRemovePages(file, pagesToRemoveStr, onProgress) {
   if (onProgress) onProgress(25, 'Loading PDF document...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const sourcePdf = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const sourcePdf = await loadEditablePdf(arrayBuffer);
   const totalPages = sourcePdf.getPageCount();
 
   const removeIndices = new Set(parsePageRanges(pagesToRemoveStr, totalPages));
@@ -356,7 +479,7 @@ export async function processRemovePages(file, pagesToRemoveStr, onProgress) {
 }
 
 export async function processOrganizePDF(file, pageOrder, onProgress) {
-  const source = await PDFDocument.load(await readFileAsArrayBuffer(file), { ignoreEncryption: true });
+  const source = await loadEditablePdf(await readFileAsArrayBuffer(file));
   const total = source.getPageCount();
   const requested = String(pageOrder || '').split(',').map((value) => Number(value.trim()));
   if (requested.length !== total || new Set(requested).size !== total ||
@@ -381,7 +504,7 @@ export async function processOrganizePDF(file, pageOrder, onProgress) {
 export async function processRotatePDF(file, rotationAngle = 90, onProgress) {
   if (onProgress) onProgress(30, 'Reading PDF document...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pdfDoc = await loadEditablePdf(arrayBuffer);
   const pages = pdfDoc.getPages();
 
   if (onProgress) onProgress(60, `Rotating ${pages.length} pages by ${rotationAngle}°...`);
@@ -403,33 +526,48 @@ export async function processRotatePDF(file, rotationAngle = 90, onProgress) {
 }
 
 /**
+ * Parse a `#rrggbb` colour into a pdf-lib colour, falling back to the coral accent.
+ */
+function hexToRgb(value) {
+  const match = /^#?([0-9a-f]{6})$/i.exec(String(value || '').trim());
+  if (!match) return rgb(0.91, 0.3, 0.31);
+  const int = parseInt(match[1], 16);
+  return rgb(((int >> 16) & 255) / 255, ((int >> 8) & 255) / 255, (int & 255) / 255);
+}
+
+/**
  * Apply customizable text watermark across all pages
  */
-export async function processWatermarkPDF(file, { text = 'CONFIDENTIAL', opacity = 0.3, fontSize = 54, angle = 45 }, onProgress) {
+export async function processWatermarkPDF(
+  file,
+  { text = 'CONFIDENTIAL', opacity = 0.3, fontSize = 54, angle = 45, color = '#e84c4f' } = {},
+  onProgress
+) {
   if (!text || !text.trim()) {
     throw new Error('Please provide watermark text.');
   }
 
   if (onProgress) onProgress(25, 'Loading PDF and embedding typography...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pdfDoc = await loadEditablePdf(arrayBuffer);
   const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
   const pages = pdfDoc.getPages();
+  const size = Number(fontSize) > 0 ? Number(fontSize) : 54;
+  const rotation = Number.isFinite(Number(angle)) ? Number(angle) : 45;
 
   if (onProgress) onProgress(60, `Stamping watermark across ${pages.length} pages...`);
+  const textWidth = measureStandardText(font, text, size);
   pages.forEach(page => {
     const { width, height } = page.getSize();
-    const textWidth = font.widthOfTextAtSize(text, fontSize);
-    const textHeight = font.heightAtSize(fontSize);
-
+    const textHeight = font.heightAtSize(size);
     page.drawText(text, {
       x: (width - textWidth) / 2,
       y: (height - textHeight) / 2,
-      size: fontSize,
+      size,
       font,
-      color: rgb(0.91, 0.3, 0.31), // Coral accent
+      color: hexToRgb(color),
       opacity: Math.max(0.05, Math.min(1.0, opacity)),
-      rotate: degrees(angle),
+      rotate: degrees(rotation),
     });
   });
 
@@ -451,7 +589,7 @@ export async function processWatermarkPDF(file, { text = 'CONFIDENTIAL', opacity
 export async function processPageNumbers(file, { position = 'bottom-center', format = 'Page {n} of {total}', startFrom = 1 }, onProgress) {
   if (onProgress) onProgress(25, 'Loading PDF document...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pdfDoc = await loadEditablePdf(arrayBuffer);
   const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const pages = pdfDoc.getPages();
   const total = pages.length;
@@ -459,7 +597,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
   if (onProgress) onProgress(65, 'Numbering document pages...');
   pages.forEach((page, idx) => {
     const currentNum = idx + startFrom;
-    const label = format.replace('{n}', currentNum).replace('{total}', total);
+    const label = format.replace('{n}', String(currentNum)).replace('{total}', String(total));
     const { width, height } = page.getSize();
     const fontSize = 10;
     const textWidth = font.widthOfTextAtSize(label, fontSize);
@@ -481,7 +619,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       y = height - 30;
     }
 
-    page.drawText(label, {
+    drawStandardText(page, label, {
       x,
       y,
       size: fontSize,
@@ -547,10 +685,10 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     if (name.endsWith('.pptx')) {
       const slideFiles = Object.keys(zip.files)
         .filter((path) => /^ppt\/slides\/slide\d+\.xml$/.test(path))
-        .sort((a, b) => Number(a.match(/slide(\d+)/)[1]) - Number(b.match(/slide(\d+)/)[1]));
+        .sort((a, b) => Number((a.match(/slide(\d+)/) || [0, 0])[1]) - Number((b.match(/slide(\d+)/) || [0, 0])[1]));
       const slides = [];
       for (const slideFile of slideFiles) {
-        slides.push(readTextNodes(parseXml(await zip.file(slideFile).async('text'))).join(' '));
+        slides.push(readTextNodes(parseXml(await mustReadZipFile(zip, slideFile))).join(' '));
       }
       return slides.map((slide, index) => `Slide ${index + 1}\n${slide}`).join('\n\n');
     }
@@ -564,10 +702,10 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
         : [];
       const sheetFiles = Object.keys(zip.files)
         .filter((path) => /^xl\/worksheets\/sheet\d+\.xml$/.test(path))
-        .sort((a, b) => Number(a.match(/sheet(\d+)/)[1]) - Number(b.match(/sheet(\d+)/)[1]));
+        .sort((a, b) => Number((a.match(/sheet(\d+)/) || [0, 0])[1]) - Number((b.match(/sheet(\d+)/) || [0, 0])[1]));
       const output = [];
       for (const sheetFile of sheetFiles) {
-        const sheet = parseXml(await zip.file(sheetFile).async('text'));
+        const sheet = parseXml(await mustReadZipFile(zip, sheetFile));
         for (const row of Array.from(sheet.getElementsByTagName('*')).filter((element) => element.localName === 'row')) {
           const values = Array.from(row.getElementsByTagName('*'))
             .filter((element) => element.localName === 'c')
@@ -1080,6 +1218,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       await frameDocument.fonts.ready;
       await Promise.all(Array.from(frameDocument.images).map((image) => image.decode()));
       const content = frameDocument.getElementById('office-page');
+      if (!content) throw new Error('Could not lay out the Office document content.');
       const contentRect = content.getBoundingClientRect();
       const slides = isPresentation ? Array.from(content.querySelectorAll('.slide')) : [];
       const lastSlide = slides[slides.length - 1];
@@ -1091,10 +1230,11 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       const frameWindow = frameDocument.defaultView;
       if (!frameWindow) throw new Error('Could not access the Office document rendering context.');
       const walker = frameDocument.createTreeWalker(content, frameWindow.NodeFilter.SHOW_ELEMENT | frameWindow.NodeFilter.SHOW_TEXT);
+      /** @type {Node | null} */
       let node = content;
       while (node) {
         if (node.nodeType === frameWindow.Node.ELEMENT_NODE) {
-          const element = node;
+          const element = /** @type {HTMLElement} */ (node);
           const style = frameDocument.defaultView.getComputedStyle(element);
           const rect = element.getBoundingClientRect();
           const box = {
@@ -1137,7 +1277,9 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
             const range = frameDocument.createRange();
             const textRuns = [];
             for (let offset = 0; offset < node.textContent.length;) {
-              const character = String.fromCodePoint(node.textContent.codePointAt(offset));
+              const codePoint = node.textContent.codePointAt(offset);
+              if (codePoint === undefined) break;
+              const character = String.fromCodePoint(codePoint);
               const nextOffset = offset + character.length;
               range.setStart(node, offset);
               range.setEnd(node, nextOffset);
@@ -1171,7 +1313,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
             operations.push(...textRuns);
           }
         }
-        node = walker.nextNode();
+        node = /** @type {Node | null} */ (walker.nextNode());
       }
 
       const pdf = await PDFDocument.create();
@@ -1229,6 +1371,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
         page.drawImage(embedded, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
         canvas.width = 0;
         canvas.height = 0;
+        await yieldToUi();
       }
       pdf.setTitle(file.name.replace(/\.[^/.]+$/, ''));
       return {
@@ -1268,7 +1411,8 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
   export async function processPDFToImages(file, format = 'png', onProgress) {
     const pdfjsLib = await loadPdfJs();
     const data = new Uint8Array(await readFileAsArrayBuffer(file));
-    const pdfDocument = await pdfjsLib.getDocument({ data, isEvalSupported: false }).promise;
+    const pdfDocument = await pdfjsLib.getDocument({ data }).promise;
+    assertRasterPageBudget(pdfDocument.numPages, 'Export Page Images');
     const zip = new JSZip();
 
     for (let pageNumber = 1; pageNumber <= pdfDocument.numPages; pageNumber++) {
@@ -1280,13 +1424,14 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       canvas.height = Math.ceil(viewport.height);
       const context = canvas.getContext('2d');
       if (!context) throw new Error('Your browser could not create an image canvas.');
-      await page.render({ canvasContext: context, viewport }).promise;
+      await page.render({ canvasContext: context, canvas, viewport }).promise;
       const blob = await new Promise((resolve, reject) => {
         canvas.toBlob((result) => result ? resolve(result) : reject(new Error('Failed to encode a rendered PDF page.')), `image/${format}`);
       });
       zip.file(`page-${String(pageNumber).padStart(3, '0')}.${format}`, blob);
       canvas.width = 0;
       canvas.height = 0;
+      await yieldToUi();
     }
 
     return {
@@ -1350,7 +1495,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
               breakLine: false,
               margin: 0,
               fit: 'shrink',
-              valign: 'mid'
+              valign: 'middle'
             });
           }
         }
@@ -1374,8 +1519,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     ]);
     const source = await pdfjsLib.getDocument({
       data: new Uint8Array(await readFileAsArrayBuffer(file)),
-      isEvalSupported: false
-    }).promise;
+      }).promise;
     const worker = await tesseract.createWorker('eng', 1, {
       logger: (message) => {
         if (message.status === 'recognizing text' && onProgress) {
@@ -1398,7 +1542,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
         canvas.height = Math.ceil(viewport.height);
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Your browser could not create an OCR canvas.');
-        await page.render({ canvasContext: context, viewport }).promise;
+        await page.render({ canvasContext: context, canvas, viewport }).promise;
         const result = await worker.recognize(canvas);
         const imageBlob = await new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not preserve a scanned page image.')), 'image/png'));
         const image = await output.embedPng(await imageBlob.arrayBuffer());
@@ -1419,6 +1563,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
         }
         canvas.width = 0;
         canvas.height = 0;
+        await yieldToUi();
       }
     } finally {
       await worker.terminate();
@@ -1436,12 +1581,12 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
 
   export async function processSignPDF(file, signer, onProgress) {
     if (!signer?.trim()) throw new Error('Enter the name to use as your electronic signature.');
-    const pdf = await PDFDocument.load(await readFileAsArrayBuffer(file), { ignoreEncryption: true });
+    const pdf = await loadEditablePdf(await readFileAsArrayBuffer(file));
     const font = await pdf.embedFont(StandardFonts.HelveticaOblique);
     const pages = pdf.getPages();
     if (onProgress) onProgress(60, 'Adding typed signature to document...');
     const date = new Date().toLocaleDateString();
-    pages[pages.length - 1].drawText(`Signed electronically by ${signer.trim()} on ${date}`, {
+    drawStandardText(pages[pages.length - 1], `Signed electronically by ${signer.trim()} on ${date}`, {
       x: 48, y: 36, size: 12, font, color: rgb(0.1, 0.2, 0.45)
     });
     return {
@@ -1455,7 +1600,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
   export async function processCropPDF(file, marginPercent = 5, onProgress) {
     const margin = Number(marginPercent);
     if (!Number.isFinite(margin) || margin < 0 || margin >= 50) throw new Error('Crop margin must be between 0 and 49 percent.');
-    const pdf = await PDFDocument.load(await readFileAsArrayBuffer(file), { ignoreEncryption: true });
+    const pdf = await loadEditablePdf(await readFileAsArrayBuffer(file));
     const pages = pdf.getPages();
     if (onProgress) onProgress(60, 'Applying crop box to document pages...');
     for (const page of pages) {
@@ -1501,8 +1646,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
     const source = await pdfjsLib.getDocument({
       data: new Uint8Array(await readFileAsArrayBuffer(file)),
       password,
-      isEvalSupported: false
-    }).promise;
+      }).promise;
     const repaired = await PDFDocument.create();
     for (let pageNumber = 1; pageNumber <= source.numPages; pageNumber++) {
       if (onProgress) onProgress(15 + Math.round(pageNumber / source.numPages * 70), `Rebuilding page ${pageNumber} of ${source.numPages}...`);
@@ -1513,7 +1657,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       canvas.height = Math.ceil(viewport.height);
       const context = canvas.getContext('2d');
       if (!context) throw new Error('Your browser could not create a repair canvas.');
-      await sourcePage.render({ canvasContext: context, viewport }).promise;
+      await sourcePage.render({ canvasContext: context, canvas, viewport }).promise;
       const imageBytes = await new Promise((resolve, reject) => canvas.toBlob(async (blob) => {
         if (!blob) return reject(new Error('Could not rebuild a PDF page image.'));
         resolve(await blob.arrayBuffer());
@@ -1523,6 +1667,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       page.drawImage(embedded, { x: 0, y: 0, width: viewport.width, height: viewport.height });
       canvas.width = 0;
       canvas.height = 0;
+      await yieldToUi();
     }
     return repaired;
   }
@@ -1562,7 +1707,7 @@ export async function processPageNumbers(file, { position = 'bottom-center', for
       data: encrypted,
       filename: `${file.name.replace(/\.[^/.]+$/, '')}-protected.pdf`,
       mimeType: 'application/pdf',
-      pageCount: (await PDFDocument.load(bytes, { ignoreEncryption: true })).getPageCount()
+      pageCount: (await loadEditablePdf(bytes)).getPageCount()
     };
   }
 
@@ -1574,9 +1719,12 @@ export async function processImagesToPDF(files, { orientation = 'portrait', page
   if (onProgress) onProgress(20, 'Creating PDF canvas...');
   const pdfDoc = await PDFDocument.create();
 
-  // A4 standard points: 595.28 x 841.89
-  const standardWidth = orientation === 'landscape' ? 841.89 : 595.28;
-  const standardHeight = orientation === 'landscape' ? 595.28 : 841.89;
+  // Page boxes in points: A4 (595.28 x 841.89) and US Letter (612 x 792).
+  const PAGE_SIZES = { a4: [595.28, 841.89], letter: [612, 792] };
+  // Each entry is [portrait width, portrait height], so the second value is the long side.
+  const [shortSide, longSide] = PAGE_SIZES[String(pageSize).toLowerCase()] || PAGE_SIZES.a4;
+  const standardWidth = orientation === 'landscape' ? longSide : shortSide;
+  const standardHeight = orientation === 'landscape' ? shortSide : longSide;
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
@@ -1602,6 +1750,7 @@ export async function processImagesToPDF(files, { orientation = 'portrait', page
       canvas.width = img.naturalWidth;
       canvas.height = img.naturalHeight;
       const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Your browser could not prepare this image for conversion.');
       ctx.drawImage(img, 0, 0);
       const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.95);
       const base64Data = jpegDataUrl.split(',')[1];
@@ -1660,7 +1809,8 @@ export async function processCompressPDF(file, level = 'recommended', onProgress
   if (onProgress) onProgress(10, 'Rendering pages for image compression...');
   const pdfjsLib = await loadPdfJs();
   const sourceBytes = new Uint8Array(await readFileAsArrayBuffer(file));
-  const source = await pdfjsLib.getDocument({ data: sourceBytes, isEvalSupported: false }).promise;
+  const source = await pdfjsLib.getDocument({ data: sourceBytes }).promise;
+  assertRasterPageBudget(source.numPages, 'Compress PDF');
   const output = await PDFDocument.create();
   const scale = level === 'extreme' ? 1 : 1.5;
   const quality = level === 'extreme' ? 0.45 : 0.72;
@@ -1674,18 +1824,19 @@ export async function processCompressPDF(file, level = 'recommended', onProgress
     canvas.height = Math.ceil(viewport.height);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Your browser could not create a compression canvas.');
-    await sourcePage.render({ canvasContext: context, viewport }).promise;
+    await sourcePage.render({ canvasContext: context, canvas, viewport }).promise;
     const imageBlob = await new Promise((resolve, reject) => canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Could not encode a compressed PDF page.')), 'image/jpeg', quality));
     const image = await output.embedJpg(await imageBlob.arrayBuffer());
     const page = output.addPage([viewport.width / scale, viewport.height / scale]);
     page.drawImage(image, { x: 0, y: 0, width: page.getWidth(), height: page.getHeight() });
     canvas.width = 0;
     canvas.height = 0;
+    await yieldToUi();
   }
 
   if (onProgress) onProgress(85, 'Comparing compressed and lossless file sizes...');
   const rasterBytes = await output.save({ useObjectStreams: true });
-  const losslessDoc = await PDFDocument.load(await readFileAsArrayBuffer(file), { ignoreEncryption: true });
+  const losslessDoc = await loadEditablePdf(await readFileAsArrayBuffer(file));
   const losslessBytes = await losslessDoc.save({ useObjectStreams: true });
   const pdfBytes = rasterBytes.byteLength < losslessBytes.byteLength ? rasterBytes : losslessBytes;
   const newSize = pdfBytes.byteLength;
@@ -1708,7 +1859,7 @@ export async function processCompressPDF(file, level = 'recommended', onProgress
 export async function processFlattenPDF(file, onProgress) {
   if (onProgress) onProgress(35, 'Reading interactive form elements...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pdfDoc = await loadEditablePdf(arrayBuffer);
   const form = pdfDoc.getForm();
   if (form.getFields().length > 0) form.flatten();
 
@@ -1872,10 +2023,15 @@ export async function processPDFToZIP(files, onProgress) {
 /**
  * Inspect and update PDF metadata
  */
-export async function processPDFMetadata(file, { title, author, subject, keywords }, onProgress) {
+/**
+ * @param {File} file
+ * @param {{ title?: string, author?: string, subject?: string, keywords?: string }} [metadata]
+ * @param {(percent: number, message?: string) => void} [onProgress]
+ */
+export async function processPDFMetadata(file, { title, author, subject, keywords } = {}, onProgress) {
   if (onProgress) onProgress(30, 'Reading PDF metadata attributes...');
   const arrayBuffer = await readFileAsArrayBuffer(file);
-  const pdfDoc = await PDFDocument.load(arrayBuffer, { ignoreEncryption: true });
+  const pdfDoc = await loadEditablePdf(arrayBuffer);
 
   if (onProgress) onProgress(70, 'Updating metadata headers...');
   if (title !== undefined) pdfDoc.setTitle(title);
@@ -1902,6 +2058,7 @@ export async function processPDFMetadata(file, { title, author, subject, keyword
  * Create a new blank PDF
  */
 export async function processCreateBlankPDF(pageCount = 1, size = 'a4', onProgress) {
+  /** @type {[number, number]} */
   const dimensions = size === 'letter' ? [612, 792] : [595.28, 841.89];
   if (!Number.isInteger(pageCount) || pageCount < 1 || pageCount > 20) {
     throw new Error('Choose between 1 and 20 blank pages.');

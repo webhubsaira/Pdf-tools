@@ -6,42 +6,63 @@
 import { initNavigation } from './navigation.js';
 import { TOOLS, CATEGORIES, filterTools, getToolById } from './tools.js';
 import { formatBytes, validateFile, triggerDownload, cleanupObjectURLs } from './file-handler.js';
-import {
-  processMergePDF,
-  processSplitPDF,
-  processRemovePages,
-  processRotatePDF,
-  processWatermarkPDF,
-  processPageNumbers,
-  processImagesToPDF,
-  processCompressPDF,
-  processFlattenPDF,
-  processPDFToText,
-  processPDFToWord,
-  processOrganizePDF,
-  processOfficeToPDF,
-  processHtmlToPDF,
-  processPDFToImages,
-  processPdfToOffice,
-  processOCRPDF,
-  processSignPDF,
-  processCropPDF,
-  processComparePDF,
-  processRepairPDF,
-  processProtectPDF,
-  processUnlockPDF,
-  processPDFToZIP,
-  processPDFMetadata,
-  processCreateBlankPDF
-} from './pdf-tools.js';
+/**
+ * The PDF engine (pdf-lib, JSZip, pdf.js…) is by far the heaviest part of the bundle.
+ * Loading it on first use keeps the legal/marketing pages light.
+ *
+ * @returns {Promise<typeof import('./pdf-tools.js')>}
+ */
+/** @type {Promise<typeof import('./pdf-tools.js')>|null} */
+let enginePromise = null;
 
-// Application state
+/**
+ * @returns {Promise<typeof import('./pdf-tools.js')>}
+ */
+function loadPdfEngine() {
+  if (!enginePromise) enginePromise = import('./pdf-tools.js');
+  return enginePromise;
+}
+
+/** @typedef {Awaited<ReturnType<typeof loadPdfEngine>>} PdfEngine */
+
+/**
+ * Inline handlers in index.html call these through the global object.
+ * @typedef {Window & { DocuFlowApp: { openToolStudio: (toolId: string, files?: File[]) => void, closeToolStudio: () => void } }} AppWindow
+ */
+
+/** @type {AppWindow} */
+const appWindow = /** @type {AppWindow} */ (/** @type {unknown} */ (window));
+
+/**
+ * @typedef {Object} ToolResult
+ * @property {Blob|Uint8Array|ArrayBuffer|string} data
+ * @property {string} filename
+ * @property {string} mimeType
+ * @property {number} [pageCount]
+ * @property {number} [originalSize]
+ * @property {number} [newSize]
+ * @property {number} [reductionRatio]
+ * @property {number} [fileCount]
+ */
+
+/**
+ * @typedef {Object} AppState
+ * @property {string} activeCategory
+ * @property {string} searchQuery
+ * @property {import('./tools.js').Tool|null} selectedTool
+ * @property {File[]} selectedFiles
+ * @property {ToolResult|null} processingResult
+ * @property {HTMLElement|null} lastFocusedElement
+ */
+
+/** @type {AppState} */
 const state = {
   activeCategory: 'all',
   searchQuery: '',
   selectedTool: null,
   selectedFiles: [],
-  processingResult: null
+  processingResult: null,
+  lastFocusedElement: null
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -131,7 +152,8 @@ function renderTools() {
 
     card.addEventListener('click', openHandler);
     card.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') {
+      const key = /** @type {KeyboardEvent} */ (e).key;
+      if (key === 'Enter' || key === ' ') {
         e.preventDefault();
         openHandler();
       }
@@ -143,13 +165,13 @@ function renderTools() {
  * Live search and category filters
  */
 function initSearchAndFilters() {
-  const searchInput = document.getElementById('tools-search');
+  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('tools-search'));
   const clearBtn = document.getElementById('search-clear');
   const filterButtons = document.querySelectorAll('.filter-btn');
 
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
-      state.searchQuery = e.target.value;
+      state.searchQuery = /** @type {HTMLInputElement} */ (e.target).value;
       if (clearBtn) {
         clearBtn.classList.toggle('visible', state.searchQuery.length > 0);
       }
@@ -169,9 +191,13 @@ function initSearchAndFilters() {
 
   filterButtons.forEach(btn => {
     btn.addEventListener('click', () => {
-      filterButtons.forEach(b => b.classList.remove('active'));
+      filterButtons.forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-selected', 'false');
+      });
       btn.classList.add('active');
-      state.activeCategory = btn.getAttribute('data-category');
+      btn.setAttribute('aria-selected', 'true');
+      state.activeCategory = btn.getAttribute('data-category') || 'all';
       renderTools();
     });
   });
@@ -203,14 +229,61 @@ function initHeroActions() {
     });
 
     heroFileInput.addEventListener('change', (e) => {
-      const files = Array.from(e.target.files);
+      const input = /** @type {HTMLInputElement} */ (e.target);
+      const files = Array.from(input.files || []);
+      // Allow re-picking the same file later.
+      input.value = '';
       if (files.length > 0) {
-        // Open Merge or first tool with selected files
-        const defaultToolId = files.length > 1 ? 'merge-pdf' : 'compress-pdf';
-        openToolStudio(defaultToolId, files);
+        const target = pickToolForFiles(files);
+        openToolStudio(target.toolId, target.validFiles);
+        if (target.notice) showModalAlert(target.notice, false);
       }
     });
   }
+}
+
+/**
+ * Choose the tool that matches the files picked from the hero uploader.
+ *
+ * Images go straight to the image converters, PDFs to a non-destructive tool, and
+ * unsupported files are reported instead of opening a tool that will reject them.
+ *
+ * @param {File[]} files
+ * @returns {{ toolId: string, validFiles: File[], notice?: string }}
+ */
+function pickToolForFiles(files) {
+  const images = files.filter((file) => file.type === 'image/png' || file.type === 'image/jpeg');
+  const pdfs = files.filter((file) => file.type === 'application/pdf' || /\.pdf$/i.test(file.name));
+  const unsupported = files.filter((file) => !images.includes(file) && !pdfs.includes(file));
+
+  if (images.length && !pdfs.length && !unsupported.length) {
+    const allPng = images.every((file) => file.type === 'image/png' || /\.png$/i.test(file.name));
+    return { toolId: allPng ? 'png-to-pdf' : 'jpg-to-pdf', validFiles: images };
+  }
+  if (pdfs.length && !images.length && !unsupported.length) {
+    return pdfs.length > 1
+      ? { toolId: 'merge-pdf', validFiles: pdfs }
+      : { toolId: 'page-numbers', validFiles: pdfs };
+  }
+  if (pdfs.length && !unsupported.length) {
+    return {
+      toolId: 'merge-pdf',
+      validFiles: pdfs,
+      notice: 'Only the PDF files were kept. Convert the images separately with JPG to PDF or PNG to PDF.'
+    };
+  }
+  if (images.length && !unsupported.length) {
+    return {
+      toolId: 'jpg-to-pdf',
+      validFiles: images,
+      notice: 'Only the images were kept. Add PDFs with a PDF tool instead.'
+    };
+  }
+  return {
+    toolId: 'compress-pdf',
+    validFiles: files.slice(0, 1),
+    notice: 'That file type is not supported yet. Choose a PDF, JPG or PNG file.'
+  };
 }
 
 /**
@@ -237,11 +310,56 @@ function initToolModal() {
       if (e.target === modalOverlay) closeToolStudio();
     });
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && modalOverlay.classList.contains('open')) {
+      if (!modalOverlay.classList.contains('open')) return;
+      const dialog = /** @type {HTMLElement|null} */ (modalOverlay.querySelector('.tool-modal-dialog'));
+      if (!dialog) return;
+
+      if (e.key === 'Escape') {
         closeToolStudio();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+
+      // Focus trap: keep keyboard navigation inside the dialog.
+      const focusable = getFocusableElements(dialog);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const index = focusable.indexOf(/** @type {HTMLElement} */ (document.activeElement));
+      const outsideDialog = index === -1 && document.activeElement !== dialog;
+
+      if (e.shiftKey && (index <= 0 || outsideDialog)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (index === focusable.length - 1 || outsideDialog)) {
+        e.preventDefault();
+        first.focus();
       }
     });
   }
+}
+
+/**
+ * Focusable elements inside the tool dialog, used for the focus trap.
+ * @param {HTMLElement} container
+ * @returns {HTMLElement[]}
+ */
+function getFocusableElements(container) {
+  const selector = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  return /** @type {HTMLElement[]} */ (Array.from(container.querySelectorAll(selector)))
+    .filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true');
+}
+
+/**
+ * Show a message in the tool dialog's alert banner.
+ * @param {string} message
+ * @param {boolean} [isError]
+ */
+function showModalAlert(message, isError = true) {
+  const alertEl = document.getElementById('modal-alert');
+  if (!alertEl) return;
+  alertEl.className = `alert-banner ${isError ? 'alert-error' : 'alert-info'} visible`;
+  alertEl.textContent = message;
 }
 
 export function openToolStudio(toolId, preloadedFiles = []) {
@@ -251,6 +369,7 @@ export function openToolStudio(toolId, preloadedFiles = []) {
   state.selectedTool = tool;
   state.selectedFiles = [...preloadedFiles];
   state.processingResult = null;
+  state.lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
   const modalOverlay = document.getElementById('tool-modal-overlay');
   if (!modalOverlay) return;
@@ -267,7 +386,18 @@ export function openToolStudio(toolId, preloadedFiles = []) {
   renderToolBody(tool);
   modalOverlay.classList.add('open');
   modalOverlay.setAttribute('aria-hidden', 'false');
-  document.body.style.overflow = 'hidden';
+  document.documentElement.classList.add('modal-open');
+
+  const dialog = /** @type {HTMLElement|null} */ (modalOverlay.querySelector('.tool-modal-dialog'));
+  const initialFocus = (dialog && getFocusableElements(dialog)[0]) || dialog;
+  if (initialFocus) initialFocus.focus({ preventScroll: true });
+
+  // Keep page URLs shareable/deep-linkable for the open tool.
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('tool') !== tool.id) {
+    url.searchParams.set('tool', tool.id);
+    window.history.replaceState({}, '', url);
+  }
 }
 
 export function closeToolStudio() {
@@ -276,10 +406,20 @@ export function closeToolStudio() {
 
   modalOverlay.classList.remove('open');
   modalOverlay.setAttribute('aria-hidden', 'true');
-  document.body.style.overflow = '';
+  document.documentElement.classList.remove('modal-open');
   state.selectedFiles = [];
   state.processingResult = null;
   cleanupObjectURLs();
+
+  const url = new URL(window.location.href);
+  if (url.searchParams.has('tool')) {
+    url.searchParams.delete('tool');
+    window.history.replaceState({}, '', url);
+  }
+
+  const returnTo = state.lastFocusedElement;
+  state.lastFocusedElement = null;
+  if (returnTo && document.contains(returnTo)) returnTo.focus({ preventScroll: true });
 }
 
 /**
@@ -378,7 +518,14 @@ function renderToolBody(tool) {
   }
 }
 
+/**
+ * @param {import('./tools.js').Tool} tool
+ * @returns {string}
+ */
 function getToolActionBtnLabel(tool) {
+  if (tool.workflow === 'split') {
+    return tool.id === 'split-pdf' ? 'Split Into Separate PDFs' : 'Extract Pages';
+  }
   switch (tool.workflow) {
     case 'merge': return 'Merge PDF Files';
     case 'split': return 'Split & Extract Pages';
@@ -417,12 +564,14 @@ function getToolSpecificSettingsHTML(tool) {
       return `
         <div class="tool-settings-title">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" x2="8.12" y1="4" y2="9.88"/></svg>
-          ${tool.workflow === 'split' ? 'Select Pages to Extract' : 'Select Pages to Delete'}
+          ${tool.workflow === 'split' ? (tool.id === 'split-pdf' ? 'Select Pages to Split Out' : 'Select Pages to Extract') : 'Select Pages to Delete'}
         </div>
         <div class="form-group">
           <label class="form-label" for="setting-page-range">Page Numbers or Ranges</label>
           <input type="text" class="form-control" id="setting-page-range" placeholder="e.g. 1-3, 5, 8-10" value="1">
-          <div class="form-hint">Separate individual pages with commas or specify spans with hyphens.</div>
+          <div class="form-hint">${tool.id === 'split-pdf'
+            ? 'Every selected page becomes its own PDF file, delivered together in a ZIP archive.'
+            : 'Separate individual pages with commas or specify spans with hyphens.'}</div>
         </div>
       `;
 
@@ -476,6 +625,26 @@ function getToolSpecificSettingsHTML(tool) {
             </select>
           </div>
         </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px;">
+          <div class="form-group">
+            <label class="form-label" for="setting-watermark-angle">Angle</label>
+            <select class="form-control" id="setting-watermark-angle">
+              <option value="45" selected>Diagonal (45°)</option>
+              <option value="0">Horizontal (0°)</option>
+              <option value="90">Vertical (90°)</option>
+              <option value="-45">Reverse diagonal (-45°)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="setting-watermark-color">Colour</label>
+            <select class="form-control" id="setting-watermark-color">
+              <option value="#e84c4f" selected>Coral</option>
+              <option value="#9aa0a6">Grey</option>
+              <option value="#1b1d22">Black</option>
+              <option value="#2f6fed">Blue</option>
+            </select>
+          </div>
+        </div>
       `;
 
     case 'page-numbers':
@@ -489,7 +658,9 @@ function getToolSpecificSettingsHTML(tool) {
             <label class="form-label" for="setting-page-pos">Position</label>
             <select class="form-control" id="setting-page-pos">
               <option value="bottom-center" selected>Bottom Center</option>
+              <option value="bottom-left">Bottom Left</option>
               <option value="bottom-right">Bottom Right</option>
+              <option value="top-center">Top Center</option>
               <option value="top-right">Top Right</option>
             </select>
           </div>
@@ -501,6 +672,11 @@ function getToolSpecificSettingsHTML(tool) {
               <option value="{n}">{n}</option>
             </select>
           </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="setting-page-start">Start numbering at</label>
+          <input type="number" class="form-control" id="setting-page-start" value="1" min="1" step="1" inputmode="numeric">
+          <div class="form-hint">Use a value above 1 when this document continues from another file.</div>
         </div>
       `;
 
@@ -572,8 +748,13 @@ function getToolSpecificSettingsHTML(tool) {
           </div>
         </div>
         <div class="form-group" style="margin-top: 10px;">
-          <label class="form-label" for="setting-meta-subject">Subject / Keywords</label>
-          <input type="text" class="form-control" id="setting-meta-subject" placeholder="Comma separated keywords">
+          <label class="form-label" for="setting-meta-subj">Subject</label>
+          <input type="text" class="form-control" id="setting-meta-subj" placeholder="One-line description of the document">
+        </div>
+        <div class="form-group" style="margin-top: 10px;">
+          <label class="form-label" for="setting-meta-keywords">Keywords</label>
+          <input type="text" class="form-control" id="setting-meta-keywords" placeholder="Comma separated keywords">
+          <div class="form-hint">Leave a field empty to keep its current value.</div>
         </div>
       `;
 
@@ -644,24 +825,17 @@ function bindModalEvents(tool) {
   const executeBtn = document.getElementById('modal-execute-btn');
   const restartBtn = document.getElementById('modal-restart-btn');
   const downloadBtn = document.getElementById('modal-download-btn');
-  const alertEl = document.getElementById('modal-alert');
-
-  function showAlert(msg, isError = true) {
-    if (!alertEl) return;
-    alertEl.className = `alert-banner ${isError ? 'alert-error' : 'alert-info'} visible`;
-    alertEl.textContent = msg;
-  }
-
-  function clearAlert() {
-    if (!alertEl) return;
-    alertEl.className = 'alert-banner';
-    alertEl.textContent = '';
-  }
+  const showAlert = showModalAlert;
+  const clearAlert = clearModalAlert;
 
   // File input change
   if (fileInput) {
     fileInput.addEventListener('change', (e) => {
-      handleFilesSelected(Array.from(e.target.files), tool);
+      const input = /** @type {HTMLInputElement} */ (e.target);
+      const files = Array.from(input.files || []);
+      // Reset so choosing the same file again still fires a change event.
+      input.value = '';
+      handleFilesSelected(files, tool);
     });
   }
 
@@ -682,15 +856,15 @@ function bindModalEvents(tool) {
     });
 
     uploadZone.addEventListener('drop', (e) => {
-      const files = Array.from(e.dataTransfer.files);
-      handleFilesSelected(files, tool);
+      const files = Array.from(/** @type {DragEvent} */ (e).dataTransfer?.files || []);
+      if (files.length) handleFilesSelected(files, tool);
     });
   }
 
   // Preset clicks
   document.querySelectorAll('.preset-card').forEach(card => {
     card.addEventListener('click', () => {
-      card.parentElement.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
+      card.parentElement?.querySelectorAll('.preset-card').forEach(c => c.classList.remove('active'));
       card.classList.add('active');
     });
   });
@@ -735,21 +909,28 @@ function bindModalEvents(tool) {
   }
 }
 
-function handleFilesSelected(newFiles, tool) {
+/**
+ * Clear the dialog's alert banner.
+ */
+function clearModalAlert() {
   const alertEl = document.getElementById('modal-alert');
-  if (alertEl) {
-    alertEl.className = 'alert-banner';
-    alertEl.textContent = '';
-  }
+  if (!alertEl) return;
+  alertEl.className = 'alert-banner';
+  alertEl.textContent = '';
+}
+
+/**
+ * @param {File[]} newFiles
+ * @param {import('./tools.js').Tool} tool
+ */
+function handleFilesSelected(newFiles, tool) {
+  clearModalAlert();
 
   const validFiles = [];
   for (const f of newFiles) {
     const check = validateFile(f, tool.accept);
     if (!check.valid) {
-      if (alertEl) {
-        alertEl.className = 'alert-banner alert-error visible';
-        alertEl.textContent = check.error;
-      }
+      showModalAlert(check.error || 'That file could not be used.');
       return;
     }
     validFiles.push(f);
@@ -864,9 +1045,76 @@ function updateFilesQueue(tool) {
   }
 }
 
+/**
+ * Read a tool setting from the dialog.
+ * @param {string} id
+ * @param {string} fallback
+ * @returns {string}
+ */
+function settingValue(id, fallback = '') {
+  const element = document.getElementById(id);
+  return element instanceof HTMLInputElement || element instanceof HTMLSelectElement
+    ? element.value
+    : fallback;
+}
+
+/**
+ * Read a numeric tool setting from the dialog.
+ * @param {string} id
+ * @param {number} fallback
+ * @returns {number}
+ */
+function settingNumber(id, fallback) {
+  const value = Number.parseFloat(settingValue(id, String(fallback)));
+  return Number.isFinite(value) ? value : fallback;
+}
+
+/**
+ * Read the value of the active preset card in the dialog.
+ * @param {string} attribute
+ * @param {string} fallback
+ * @returns {string}
+ */
+function activePreset(attribute, fallback) {
+  const card = document.querySelector('.preset-card.active');
+  return card?.getAttribute(attribute) || fallback;
+}
+
+/**
+ * Human-readable size of a tool result.
+ * @param {ToolResult} result
+ * @returns {number}
+ */
+function resultSize(result) {
+  const data = result.data;
+  if (typeof data === 'string') return data.length;
+  if (data instanceof Blob) return data.size;
+  if (data instanceof ArrayBuffer) return data.byteLength;
+  if (ArrayBuffer.isView(data)) return data.byteLength;
+  return 0;
+}
+
+/**
+ * Check file-count requirements before doing any work.
+ * @param {import('./tools.js').Tool} tool
+ * @returns {string|null} an error message, or null when the selection is usable
+ */
+function validateSelection(tool) {
+  const count = state.selectedFiles.length;
+  if (tool.workflow === 'create-pdf') return null;
+  if (count === 0) return 'Please choose at least one file to process.';
+  if (tool.workflow === 'compare' && count !== 2) return 'Comparison needs exactly two PDF files.';
+  if (tool.workflow === 'merge' && count < 2) {
+    // A single PDF can be emitted unchanged by "Organize", but merging needs two.
+    return 'Select at least two PDF files to merge. Use Split PDF to work with a single file.';
+  }
+  return null;
+}
+
 async function executeToolOperation(tool, showAlert) {
-  if (state.selectedFiles.length === 0 && tool.workflow !== 'create-pdf') {
-    showAlert('Please choose at least one file to process.');
+  const selectionError = validateSelection(tool);
+  if (selectionError) {
+    showAlert(selectionError);
     return;
   }
 
@@ -876,10 +1124,10 @@ async function executeToolOperation(tool, showAlert) {
   const actionBarEl = document.getElementById('modal-action-bar');
   const processingBox = document.getElementById('modal-processing-box');
   const progressFill = document.getElementById('modal-progress-fill');
-  const progressTitle = document.getElementById('modal-progress-title');
   const progressDesc = document.getElementById('modal-progress-desc');
   const successBox = document.getElementById('modal-success-box');
   const statsEl = document.getElementById('modal-result-stats');
+  const executeBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('modal-execute-btn'));
 
   // Switch to processing view
   if (uploadZone) uploadZone.style.display = 'none';
@@ -887,149 +1135,156 @@ async function executeToolOperation(tool, showAlert) {
   if (settingsEl) settingsEl.style.display = 'none';
   if (actionBarEl) actionBarEl.style.display = 'none';
   if (processingBox) processingBox.classList.add('visible');
+  if (executeBtn) executeBtn.disabled = true;
 
+  /** @param {number} percent @param {string} [message] */
   function updateProgress(percent, message) {
     if (progressFill) progressFill.style.width = `${percent}%`;
     if (progressDesc && message) progressDesc.textContent = message;
   }
 
   try {
+    const files = state.selectedFiles;
+    /** @type {ToolResult} */
     let result;
+    const engine = await loadPdfEngine();
 
     switch (tool.workflow) {
       case 'merge':
-        result = await processMergePDF(state.selectedFiles, updateProgress);
+        result = await engine.processMergePDF(files, updateProgress);
         break;
 
       case 'split': {
-        const range = document.getElementById('setting-page-range')?.value || '1';
-        result = await processSplitPDF(state.selectedFiles[0], range, updateProgress);
+        const range = settingValue('setting-page-range', '1');
+        result = tool.id === 'split-pdf'
+          ? await engine.processSplitToFilesPDF(files[0], range, updateProgress)
+          : await engine.processSplitPDF(files[0], range, updateProgress);
         break;
       }
 
-      case 'remove-pages': {
-        const pagesToRemove = document.getElementById('setting-page-range')?.value || '1';
-        result = await processRemovePages(state.selectedFiles[0], pagesToRemove, updateProgress);
+      case 'remove-pages':
+        result = await engine.processRemovePages(files[0], settingValue('setting-page-range', '1'), updateProgress);
         break;
-      }
 
       case 'organize':
-        result = await processOrganizePDF(state.selectedFiles[0], document.getElementById('setting-page-order')?.value, updateProgress);
+        result = await engine.processOrganizePDF(files[0], settingValue('setting-page-order'), updateProgress);
         break;
 
       case 'rotate': {
-        const activeAngle = document.querySelector('.preset-card.active')?.getAttribute('data-angle') || 90;
-        result = await processRotatePDF(state.selectedFiles[0], parseInt(activeAngle, 10), updateProgress);
+        const angle = Number.parseInt(activePreset('data-angle', '90'), 10);
+        result = await engine.processRotatePDF(files[0], Number.isFinite(angle) ? angle : 90, updateProgress);
         break;
       }
 
-      case 'watermark': {
-        const text = document.getElementById('setting-watermark-text')?.value || 'CONFIDENTIAL';
-        const fontSize = parseInt(document.getElementById('setting-watermark-size')?.value || '54', 10);
-        const opacity = parseFloat(document.getElementById('setting-watermark-opacity')?.value || '0.3');
-        result = await processWatermarkPDF(state.selectedFiles[0], { text, fontSize, opacity }, updateProgress);
+      case 'watermark':
+        result = await engine.processWatermarkPDF(files[0], {
+          text: settingValue('setting-watermark-text', 'CONFIDENTIAL'),
+          fontSize: settingNumber('setting-watermark-size', 54),
+          opacity: settingNumber('setting-watermark-opacity', 0.3),
+          angle: settingNumber('setting-watermark-angle', 45),
+          color: settingValue('setting-watermark-color', '#e84c4f')
+        }, updateProgress);
         break;
-      }
 
-      case 'page-numbers': {
-        const pos = document.getElementById('setting-page-pos')?.value || 'bottom-center';
-        const fmt = document.getElementById('setting-page-fmt')?.value || 'Page {n} of {total}';
-        result = await processPageNumbers(state.selectedFiles[0], { position: pos, format: fmt }, updateProgress);
+      case 'page-numbers':
+        result = await engine.processPageNumbers(files[0], {
+          position: settingValue('setting-page-pos', 'bottom-center'),
+          format: settingValue('setting-page-fmt', 'Page {n} of {total}'),
+          startFrom: Math.max(1, Math.trunc(settingNumber('setting-page-start', 1)))
+        }, updateProgress);
         break;
-      }
 
-      case 'images-to-pdf': {
-        const orient = document.getElementById('setting-img-orient')?.value || 'portrait';
-        const pSize = document.getElementById('setting-img-size')?.value || 'a4';
-        const margin = parseInt(document.getElementById('setting-img-margin')?.value || '20', 10);
-        result = await processImagesToPDF(state.selectedFiles, { orientation: orient, pageSize: pSize, margin }, updateProgress);
+      case 'images-to-pdf':
+        result = await engine.processImagesToPDF(files, {
+          orientation: settingValue('setting-img-orient', 'portrait'),
+          pageSize: settingValue('setting-img-size', 'a4'),
+          margin: settingNumber('setting-img-margin', 20)
+        }, updateProgress);
         break;
-      }
 
       case 'html-to-pdf':
-        result = await processHtmlToPDF(state.selectedFiles[0], updateProgress);
+        result = await engine.processHtmlToPDF(files[0], updateProgress);
         break;
 
       case 'office-to-pdf':
-        result = await processOfficeToPDF(state.selectedFiles[0], updateProgress);
+        result = await engine.processOfficeToPDF(files[0], updateProgress);
         break;
 
       case 'pdf-to-images':
-        result = await processPDFToImages(state.selectedFiles[0], tool.id === 'pdf-to-jpg' ? 'jpeg' : 'png', updateProgress);
+        result = await engine.processPDFToImages(files[0], tool.id === 'pdf-to-jpg' ? 'jpeg' : 'png', updateProgress);
         break;
 
       case 'pdf-to-office':
-        result = await processPdfToOffice(state.selectedFiles[0], tool.id === 'pdf-to-excel' ? 'xlsx' : 'pptx', updateProgress);
+        result = await engine.processPdfToOffice(files[0], tool.id === 'pdf-to-excel' ? 'xlsx' : 'pptx', updateProgress);
         break;
 
-      case 'compress': {
-        const level = document.querySelector('.preset-card.active')?.getAttribute('data-compress') || 'recommended';
-        result = await processCompressPDF(state.selectedFiles[0], level, updateProgress);
+      case 'compress':
+        result = await engine.processCompressPDF(files[0], activePreset('data-compress', 'recommended'), updateProgress);
         break;
-      }
 
       case 'flatten':
-        result = await processFlattenPDF(state.selectedFiles[0], updateProgress);
+        result = await engine.processFlattenPDF(files[0], updateProgress);
         break;
 
       case 'pdf-to-text':
-        result = await processPDFToText(state.selectedFiles[0], updateProgress);
+        result = await engine.processPDFToText(files[0], updateProgress);
         break;
 
       case 'pdf-to-word':
-        result = await processPDFToWord(state.selectedFiles[0], updateProgress);
+        result = await engine.processPDFToWord(files[0], updateProgress);
         break;
 
       case 'sign':
-        result = await processSignPDF(state.selectedFiles[0], document.getElementById('setting-signature-name')?.value, updateProgress);
+        result = await engine.processSignPDF(files[0], settingValue('setting-signature-name'), updateProgress);
         break;
 
       case 'crop':
-        result = await processCropPDF(state.selectedFiles[0], document.getElementById('setting-crop-margin')?.value, updateProgress);
+        result = await engine.processCropPDF(files[0], settingNumber('setting-crop-margin', 5), updateProgress);
         break;
 
       case 'compare':
-        result = await processComparePDF(state.selectedFiles, updateProgress);
+        result = await engine.processComparePDF(files, updateProgress);
         break;
 
       case 'repair':
-        result = await processRepairPDF(state.selectedFiles[0], updateProgress);
+        result = await engine.processRepairPDF(files[0], updateProgress);
         break;
 
       case 'unlock':
-        result = await processUnlockPDF(state.selectedFiles[0], document.getElementById('setting-pdf-password')?.value, updateProgress);
+        result = await engine.processUnlockPDF(files[0], settingValue('setting-pdf-password'), updateProgress);
         break;
 
       case 'protect':
-        result = await processProtectPDF(state.selectedFiles[0], document.getElementById('setting-pdf-password')?.value, updateProgress);
+        result = await engine.processProtectPDF(files[0], settingValue('setting-pdf-password'), updateProgress);
         break;
 
       case 'ocr':
-        result = await processOCRPDF(state.selectedFiles[0], updateProgress);
+        result = await engine.processOCRPDF(files[0], updateProgress);
         break;
 
       case 'pdf-to-zip':
-        result = await processPDFToZIP(state.selectedFiles, updateProgress);
+        result = await engine.processPDFToZIP(files, updateProgress);
         break;
 
-      case 'metadata': {
-        const title = document.getElementById('setting-meta-title')?.value;
-        const author = document.getElementById('setting-meta-author')?.value;
-        const keywords = document.getElementById('setting-meta-subject')?.value;
-        result = await processPDFMetadata(state.selectedFiles[0], { title, author, keywords }, updateProgress);
+      case 'metadata':
+        result = await engine.processPDFMetadata(files[0], {
+          title: settingValue('setting-meta-title'),
+          author: settingValue('setting-meta-author'),
+          subject: settingValue('setting-meta-subj'),
+          keywords: settingValue('setting-meta-keywords')
+        }, updateProgress);
         break;
-      }
 
       case 'create-pdf':
-        result = await processCreateBlankPDF(
-          parseInt(document.getElementById('setting-blank-count')?.value || '1', 10),
-          document.getElementById('setting-blank-size')?.value || 'a4',
+        result = await engine.processCreateBlankPDF(
+          Math.trunc(settingNumber('setting-blank-count', 1)),
+          settingValue('setting-blank-size', 'a4'),
           updateProgress
         );
         break;
 
       default:
-        throw new Error(`Execution for workflow "${tool.workflow}" is in progress.`);
+        throw new Error(`The "${tool.name}" tool is not available yet.`);
     }
 
     state.processingResult = result;
@@ -1045,15 +1300,17 @@ async function executeToolOperation(tool, showAlert) {
             <span>Original: ${formatBytes(result.originalSize)}</span>
             <span>&rarr;</span>
             <span>Optimized: <strong>${formatBytes(result.newSize)}</strong></span>
-            ${result.reductionRatio > 0 ? `<span>(${result.reductionRatio}% reduction)</span>` : ''}
+            ${(result.reductionRatio || 0) > 0 ? `<span>(${result.reductionRatio}% reduction)</span>` : ''}
           </div>
         `;
       } else if (result.pageCount) {
+        const count = result.pageCount;
+        const label = result.fileCount ? `${count} file${count === 1 ? '' : 's'}` : `${count} ${count === 1 ? 'Page' : 'Pages'}`;
         statsEl.innerHTML = `
           <div class="file-stat-chip">
-            <span>Generated Document: <strong>${result.pageCount} ${result.pageCount === 1 ? 'Page' : 'Pages'}</strong></span>
+            <span>Generated Document: <strong>${label}</strong></span>
             <span>&bull;</span>
-            <span>Size: <strong>${formatBytes(result.data.byteLength || result.data.size || 0)}</strong></span>
+            <span>Size: <strong>${formatBytes(resultSize(result))}</strong></span>
           </div>
         `;
       } else {
@@ -1065,19 +1322,27 @@ async function executeToolOperation(tool, showAlert) {
       }
     }
 
-    // Automatically trigger file download
-    triggerDownload(result.data, result.filename, result.mimeType);
+    // One explicit download action: the success view's "Download Document" button.
+    // Previously the file was also downloaded automatically, which produced duplicate
+    // saves when the button was clicked and looked like a silent failure when the
+    // browser blocked the programmatic download.
+    const downloadButton = /** @type {HTMLButtonElement|null} */ (document.getElementById('modal-download-btn'));
+    if (downloadButton) downloadButton.focus({ preventScroll: true });
 
   } catch (err) {
     console.error('Error during document operation:', err);
     if (processingBox) processingBox.classList.remove('visible');
+    if (successBox) successBox.classList.remove('visible');
     updateFilesQueue(tool);
-    showAlert(err.message || 'An error occurred while processing the document.');
+    const message = err instanceof Error ? err.message : 'An error occurred while processing the document.';
+    showAlert(message);
+  } finally {
+    if (executeBtn) executeBtn.disabled = false;
   }
 }
 
-// Attach to window for inline onclick handlers if needed
-window.DocuFlowApp = {
+// Exposed for the inline onclick handlers in the marketing pages.
+appWindow.DocuFlowApp = {
   openToolStudio,
   closeToolStudio
 };
